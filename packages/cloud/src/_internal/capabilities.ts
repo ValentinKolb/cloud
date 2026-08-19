@@ -792,20 +792,25 @@ export const reviewCompiledCapability = async (params: {
       return normalizeProviderError(reviewed.error, "Capability review returned an invalid error", params.onUnexpectedError);
     }
     const parsed = CapabilityActionReviewSchema.safeParse(reviewed.data);
-    if (!parsed.success) {
+    const approvalScopeIsValid =
+      parsed.success &&
+      (operation.manifest.approval === "rememberable" ? parsed.data.approvalScope !== undefined : parsed.data.approvalScope === undefined);
+    if (!parsed.success || !approvalScopeIsValid) {
       try {
         params.onUnexpectedError?.(
           new Error(
-            `Capability ${operation.manifest.localId} review returned data outside its registered schema: ${JSON.stringify(
-              parsed.error.issues.map(({ code, path, message }) => ({ code, path, message })),
-            )}`,
+            parsed.success
+              ? `Capability ${operation.manifest.localId} review returned an approval scope inconsistent with its manifest`
+              : `Capability ${operation.manifest.localId} review returned data outside its registered schema: ${JSON.stringify(
+                  parsed.error.issues.map(({ code, path, message }) => ({ code, path, message })),
+                )}`,
           ),
         );
       } catch {
         // Observability must not change the public failure contract.
       }
     }
-    return parsed.success
+    return parsed.success && approvalScopeIsValid
       ? { ok: true, data: parsed.data }
       : {
           ok: false,

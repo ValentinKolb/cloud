@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import assistantCli from "./cli";
-import { collectSurveyResult, runInteractiveAssistant } from "./cli/interactive";
+import { collectSurveyResult, collectTextEditorResult, runInteractiveAssistant } from "./cli/interactive";
 import { streamAssistantTurn } from "./cli/stream";
 
 const json = (value: unknown, status = 200) => Response.json(value, { status });
@@ -865,6 +865,60 @@ describe("assistant CLI", () => {
       submitted: true,
       answers: { priority: "high", areas: ["api", "docs"], note: "Looks good", rating: 4 },
     });
+  });
+
+  test("accepts the proposed long-form text without opening an editor", async () => {
+    const { ctx, stdout } = createContext([], async () => json({}));
+    const lines = [""];
+    const result = await collectTextEditorResult(
+      ctx,
+      {
+        read: async () => lines.shift() ?? null,
+        close: () => undefined,
+        onInterrupt: () => () => undefined,
+      },
+      { title: "Review mail", content: "Hello Ada", format: "plain" },
+    );
+
+    expect(result).toEqual({ submitted: true, content: "Hello Ada", format: "plain" });
+    expect(stdout.join("")).toContain("Review mail");
+    expect(stdout.join("")).toContain("Hello Ada");
+  });
+
+  test("edits and explicitly accepts long-form text", async () => {
+    const { ctx } = createContext([], async () => json({}));
+    const lines = ["e", "y"];
+    const lifecycle: string[] = [];
+    const result = await collectTextEditorResult(
+      ctx,
+      {
+        read: async () => lines.shift() ?? null,
+        close: () => undefined,
+        onInterrupt: () => () => undefined,
+        pause: () => lifecycle.push("pause"),
+        resume: () => lifecycle.push("resume"),
+      },
+      { title: "Review mail", content: "Initial", format: "markdown" },
+      async () => ({ submitted: true, content: "Edited", format: "markdown" }),
+    );
+
+    expect(result).toEqual({ submitted: true, content: "Edited", format: "markdown" });
+    expect(lifecycle).toEqual(["pause", "resume"]);
+  });
+
+  test("leaves a cancelled text edit pending", async () => {
+    const { ctx } = createContext([], async () => json({}));
+    const result = await collectTextEditorResult(
+      ctx,
+      {
+        read: async () => "c",
+        close: () => undefined,
+        onInterrupt: () => () => undefined,
+      },
+      { title: "Review mail", content: "Initial" },
+    );
+
+    expect(result).toBeNull();
   });
 
   test("creates a Project", async () => {

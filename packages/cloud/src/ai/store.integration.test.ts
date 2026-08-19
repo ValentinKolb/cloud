@@ -85,7 +85,7 @@ suite("AI conversation store integration", () => {
     }
   });
 
-  test("persists loaded capabilities and evicts the oldest names under a positive profile limit", async () => {
+  test("persists loaded tools and evicts the oldest names under a positive profile limit", async () => {
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -93,9 +93,9 @@ suite("AI conversation store integration", () => {
       const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
 
-      expect(await aiConversations.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([]);
+      expect(await aiConversations.getLoadedTools({ conversationId: conversation.id })).toEqual([]);
       expect(
-        await aiConversations.loadCapabilities({
+        await aiConversations.loadTools({
           conversationId: conversation.id,
           names: ["contacts__query__list", "contacts__query__list", "mail__query__search"],
         }),
@@ -106,37 +106,37 @@ suite("AI conversation store integration", () => {
       });
 
       expect(
-        await aiConversations.loadCapabilities({
+        await aiConversations.loadTools({
           conversationId: conversation.id,
           names: ["contacts__query__list", "spaces__action__task-create"],
-          maxLoadedCapabilities: 2,
+          maxLoadedTools: 2,
         }),
       ).toEqual({
         loaded: ["spaces__action__task-create"],
         alreadyLoaded: ["contacts__query__list"],
         evicted: ["contacts__query__list"],
       });
-      expect(await aiConversations.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([
+      expect(await aiConversations.getLoadedTools({ conversationId: conversation.id })).toEqual([
         "mail__query__search",
         "spaces__action__task-create",
       ]);
 
-      await aiConversations.loadCapabilities({
+      await aiConversations.loadTools({
         conversationId: conversation.id,
         names: ["weather__query__forecast"],
-        maxLoadedCapabilities: 0,
+        maxLoadedTools: 0,
       });
-      expect(await aiConversations.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([
+      expect(await aiConversations.getLoadedTools({ conversationId: conversation.id })).toEqual([
         "mail__query__search",
         "spaces__action__task-create",
         "weather__query__forecast",
       ]);
 
       await Promise.all([
-        aiConversations.loadCapabilities({ conversationId: conversation.id, names: ["contacts__query__get"] }),
-        aiConversations.loadCapabilities({ conversationId: conversation.id, names: ["notebooks__query__list"] }),
+        aiConversations.loadTools({ conversationId: conversation.id, names: ["contacts__query__get"] }),
+        aiConversations.loadTools({ conversationId: conversation.id, names: ["notebooks__query__list"] }),
       ]);
-      expect((await aiConversations.getLoadedCapabilities({ conversationId: conversation.id })).slice(-2).sort()).toEqual([
+      expect((await aiConversations.getLoadedTools({ conversationId: conversation.id })).slice(-2).sort()).toEqual([
         "contacts__query__get",
         "notebooks__query__list",
       ]);

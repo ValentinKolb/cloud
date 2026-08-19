@@ -150,15 +150,17 @@ describe("mail capabilities", () => {
       .map(([localId]) => localId)
       .sort();
     expect(rememberable).toEqual([
-      "conversation.collaboration.update",
+      "conversation.assign",
+      "conversation.comment.create",
       "conversation.comment.update",
       "conversation.mark",
-      "conversation.move",
+      "conversation.reminder.cancel",
       "conversation.reminder.set",
+      "conversation.snooze",
+      "conversation.status.update",
       "conversation.tag.update",
       "draft.create",
       "draft.update",
-      "mailbox.tag.update",
     ]);
   });
 
@@ -207,7 +209,7 @@ describe("mail capabilities", () => {
       "search",
     ]);
     expect(Object.keys(mailCapabilities.actions).sort()).toEqual([
-      "conversation.collaboration.update",
+      "conversation.assign",
       "conversation.comment.create",
       "conversation.comment.delete",
       "conversation.comment.update",
@@ -215,6 +217,8 @@ describe("mail capabilities", () => {
       "conversation.move",
       "conversation.reminder.cancel",
       "conversation.reminder.set",
+      "conversation.snooze",
+      "conversation.status.update",
       "conversation.tag.update",
       "delivery.cancel",
       "draft.attachment.add",
@@ -234,13 +238,16 @@ describe("mail capabilities", () => {
         .map(([id]) => id)
         .sort(),
     ).toEqual([
-      "conversation.collaboration.update",
+      "conversation.assign",
+      "conversation.comment.create",
       "conversation.comment.delete",
       "conversation.comment.update",
       "conversation.mark",
       "conversation.move",
       "conversation.reminder.cancel",
       "conversation.reminder.set",
+      "conversation.snooze",
+      "conversation.status.update",
       "conversation.tag.update",
       "delivery.cancel",
       "draft.attachment.remove",
@@ -338,6 +345,7 @@ describe("mail capabilities", () => {
       ok: true,
       data: {
         message: "The email will be saved as a draft and will not be sent.",
+        approvalScope: `mailbox:${mailboxId}`,
         details: [
           { label: "Subject", value: "Release follow-up" },
           { label: "Recipients", value: "Ada, team@example.test" },
@@ -473,6 +481,40 @@ describe("mail capabilities", () => {
     );
     expect(review.ok).toBeTrue();
     if (review.ok) expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
+  });
+
+  test("resolves an assignee to a current mailbox member in the review", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    spyOn(messages, "listConversationMessages").mockResolvedValue({
+      ok: true,
+      data: { items: [{ subject: "Release follow-up" }], nextCursor: null },
+    } as never);
+    const listCurrentUsers = spyOn(collaboration, "listCurrentUsers").mockResolvedValue([
+      { id: userId, uid: "ada", displayName: "Ada Lovelace", avatarHash: null },
+    ] as never);
+
+    const review = await mailCapabilities.actions["conversation.assign"].review(
+      { mailboxId, conversationId, assigneeUserId: userId, expectedRevision: 4 },
+      context,
+    );
+
+    expect(listCurrentUsers).toHaveBeenCalledWith({
+      mailboxId: internalMailboxId,
+      userIds: [userId],
+      minimumPermission: "write",
+      limit: 1,
+    });
+    expect(review).toMatchObject({
+      ok: true,
+      data: {
+        message: "Assign Release follow-up to Ada Lovelace.",
+        approvalScope: `mailbox:${mailboxId}`,
+        details: [
+          { label: "Conversation", value: "Release follow-up" },
+          { label: "Assignee", value: "Ada Lovelace · ada" },
+        ],
+      },
+    });
   });
 
   test("shows the current and replacement comment directly in the review", async () => {

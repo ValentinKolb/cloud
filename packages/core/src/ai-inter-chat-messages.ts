@@ -56,7 +56,7 @@ export const deliverPendingAiMessages = async (targetConversationId?: string): P
         systemPrompt: personalAiSystemPrompt(target.shortId),
         project: project ?? undefined,
         sourceHref: `/app/assistant?conversation=${encodeURIComponent(message.sourceChatId)}`,
-        toolSource: { kind: "default", capabilities: true },
+        toolSource: { kind: "default", appTools: true },
         toolApprovalContext: { actorUserId: user.id },
       });
       outcomes.set(message.id, delivered.delivered ? "delivered" : delivered.reason === "busy" ? "queued" : "failed");

@@ -72,10 +72,10 @@ describe("AI HTTP input helpers", () => {
           { type: "resource", ref: { type: "mail.draft", id: "Draft1" } },
         ],
       },
-      preloadCapabilities: [{ appId: "mail", kind: "query", id: "draft.read" }],
+      preloadTools: [{ appId: "mail", kind: "query", id: "draft.read" }, { name: "text_editor" }],
     });
     expect(launch.draft?.content).toHaveLength(2);
-    expect(launch.preloadCapabilities).toEqual([{ appId: "mail", kind: "query", id: "draft.read" }]);
+    expect(launch.preloadTools).toEqual([{ appId: "mail", kind: "query", id: "draft.read" }, { name: "text_editor" }]);
     expect(() =>
       AiCreateConversationInputSchema.parse({
         draft: { content: [{ type: "file", path: "/not-uploaded.txt", mediaType: "text/plain", size: 1, version: 1 }] },
@@ -83,7 +83,7 @@ describe("AI HTTP input helpers", () => {
     ).toThrow();
     expect(() =>
       AiCreateConversationInputSchema.parse({
-        preloadCapabilities: Array.from({ length: 9 }, () => ({ appId: "mail", kind: "query", id: "draft.read" })),
+        preloadTools: Array.from({ length: 9 }, () => ({ appId: "mail", kind: "query", id: "draft.read" })),
       }),
     ).toThrow();
     expect(() =>

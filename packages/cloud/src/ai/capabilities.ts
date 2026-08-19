@@ -18,7 +18,8 @@ import {
 } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
-import { defineAiTool, type AiToolPreparationContext, type PreparedAiTools, prepareAiTools } from "./tools";
+import { CLOUD_AI_DEFERRED_BUILTIN_TOOL_NAMES } from "./default-tools";
+import { type AiToolPreparationContext, defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
 import type { AiConversationService, AiRuntimeTool, AiToolPresentation } from "./types";
 
 export type AiCapabilityKind = "query" | "action";
@@ -44,12 +45,25 @@ export type AiCapabilityCatalogEntry = AiCapabilityCatalogItem & {
   operation: CapabilityQueryManifest | CapabilityActionManifest;
 };
 
+export type AiToolKind = "builtin" | AiCapabilityKind;
+
+export type AiToolCatalogItem = {
+  name: string;
+  title: string;
+  description: string;
+  kind: AiToolKind;
+  appId?: string;
+};
+
+type AiToolCatalogEntry = AiToolCatalogItem & {
+  searchText: string;
+  runtimeTool?: AiRuntimeTool;
+  capability?: AiCapabilityCatalogEntry;
+};
+
 export type AiRememberableCapabilityApprovals = ReadonlyMap<string, string>;
 
-const DEFAULT_LIST_LIMIT = 20;
-const MAX_LIST_LIMIT = 50;
 const DEFAULT_SEARCH_LIMIT = 10;
-const MAX_SEARCH_LIMIT = 25;
 const DEFAULT_APP_LIST_LIMIT = 20;
 const MAX_APP_LIST_LIMIT = 25;
 const MAX_APP_DIRECTORY_DESCRIPTION_CHARS = 2_000;
@@ -72,16 +86,6 @@ export const aiCapabilityToolName = (appId: string, kind: AiCapabilityKind, loca
   const suffix = createHash("sha256").update(full).digest("hex").slice(0, 12);
   return `${full.slice(0, 50)}__${suffix}`;
 };
-
-const catalogItem = (entry: AiCapabilityCatalogEntry): AiCapabilityCatalogItem => ({
-  name: entry.name,
-  appId: entry.appId,
-  appName: entry.appName,
-  appDescription: entry.appDescription,
-  kind: entry.kind,
-  title: entry.title,
-  description: entry.description,
-});
 
 /** Build the compact, deterministic directory of apps in the current live registry. */
 export const buildAiCapabilityAppCatalog = (apps: readonly CapabilityRegistryEntry[]): AiCapabilityAppCatalogItem[] => {
@@ -138,34 +142,9 @@ export const buildAiCapabilityCatalog = (apps: CapabilityRegistryEntry[]): AiCap
   });
 };
 
-const filteredCatalog = (
-  catalog: readonly AiCapabilityCatalogEntry[],
-  input: { appId?: string; kind?: AiCapabilityKind },
-): AiCapabilityCatalogEntry[] =>
-  catalog.filter((entry) => (!input.appId || entry.appId === input.appId) && (!input.kind || entry.kind === input.kind));
-
 const boundedLimit = (value: number | undefined, fallback: number, maximum: number): number => {
   if (!Number.isInteger(value) || Number(value) <= 0) return fallback;
   return Math.min(Number(value), maximum);
-};
-
-export const listAiCapabilities = (
-  catalog: readonly AiCapabilityCatalogEntry[],
-  input: { appId?: string; kind?: AiCapabilityKind; cursor?: string; limit?: number },
-): { capabilities: AiCapabilityCatalogItem[]; page: { hasMore: boolean; nextCursor?: string } } => {
-  const filtered = filteredCatalog(catalog, input);
-  const start = input.cursor ? filtered.findIndex((entry) => entry.name > input.cursor!) : 0;
-  const offset = start < 0 ? filtered.length : start;
-  const limit = boundedLimit(input.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
-  const page = filtered.slice(offset, offset + limit);
-  const hasMore = offset + page.length < filtered.length;
-  return {
-    capabilities: page.map(catalogItem),
-    page: {
-      hasMore,
-      ...(hasMore && page.length > 0 ? { nextCursor: page.at(-1)!.name } : {}),
-    },
-  };
 };
 
 export const listAiCapabilityApps = (
@@ -214,25 +193,58 @@ const includesSearchTerm = (words: ReadonlySet<string>, term: string): boolean =
 
 const includesSearchPhrase = (text: string, phrase: string): boolean => ` ${text} `.includes(` ${phrase} `);
 
-export const searchAiCapabilities = (
-  catalog: readonly AiCapabilityCatalogEntry[],
-  input: { query: string; appId?: string; kind?: AiCapabilityKind; limit?: number },
-): { capabilities: AiCapabilityCatalogItem[] } => {
+const toolTitle = (name: string): string =>
+  name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+
+export const buildAiToolCatalog = (
+  builtIns: readonly AiRuntimeTool[],
+  capabilities: readonly AiCapabilityCatalogEntry[],
+): AiToolCatalogEntry[] =>
+  [
+    ...builtIns.map(
+      (runtimeTool): AiToolCatalogEntry => ({
+        name: runtimeTool.def.name,
+        title: toolTitle(runtimeTool.def.name),
+        description: runtimeTool.def.description,
+        kind: "builtin",
+        searchText: "",
+        runtimeTool,
+      }),
+    ),
+    ...capabilities.map(
+      (capability): AiToolCatalogEntry => ({
+        name: capability.name,
+        title: capability.title,
+        description: capability.description,
+        kind: capability.kind,
+        appId: capability.appId,
+        searchText: `${capability.appName} ${capability.appDescription}`,
+        capability,
+      }),
+    ),
+  ].sort((left, right) => left.name.localeCompare(right.name));
+
+export const searchAiTools = (
+  catalog: readonly AiToolCatalogEntry[],
+  input: { query: string; appId?: string },
+): { tools: AiToolCatalogItem[] } => {
   const phrase = normalizeSearchText(input.query);
   const terms = searchTerms(input.query);
-  if (!phrase || terms.length === 0) return { capabilities: [] };
-  const limit = boundedLimit(input.limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-  const matches = filteredCatalog(catalog, input)
+  if (!phrase || terms.length === 0) return { tools: [] };
+  const matches = catalog
+    .filter((entry) => !input.appId || entry.appId === input.appId)
     .flatMap((entry) => {
       const name = normalizeSearchText(entry.name);
       const title = normalizeSearchText(entry.title);
       const identity = `${name} ${title}`;
-      const app = normalizeSearchText(`${entry.appId} ${entry.appName}`);
-      const appDescription = normalizeSearchText(entry.appDescription);
+      const app = normalizeSearchText(`${entry.appId ?? ""} ${entry.searchText}`);
       const description = normalizeSearchText(entry.description);
       const identityWords = searchWordForms(identity);
       const appWords = searchWordForms(app);
-      const appDescriptionWords = searchWordForms(appDescription);
       const descriptionWords = searchWordForms(description);
       let matchedTerms = 0;
       let score = 0;
@@ -240,17 +252,14 @@ export const searchAiCapabilities = (
       else if (includesSearchPhrase(identity, phrase)) score += 50;
       if (app === phrase) score += 40;
       else if (includesSearchPhrase(app, phrase)) score += 20;
-      if (includesSearchPhrase(appDescription, phrase)) score += 12;
       if (includesSearchPhrase(description, phrase)) score += 15;
       for (const term of terms) {
         const identityMatch = includesSearchTerm(identityWords, term);
         const appMatch = includesSearchTerm(appWords, term);
-        const appDescriptionMatch = includesSearchTerm(appDescriptionWords, term);
         const descriptionMatch = includesSearchTerm(descriptionWords, term);
-        if (identityMatch || appMatch || appDescriptionMatch || descriptionMatch) matchedTerms += 1;
+        if (identityMatch || appMatch || descriptionMatch) matchedTerms += 1;
         if (identityMatch) score += 8;
         if (appMatch) score += 6;
-        if (appDescriptionMatch) score += 3;
         if (descriptionMatch) score += 4;
       }
       return matchedTerms > 0 ? [{ entry, matchedTerms, score }] : [];
@@ -259,8 +268,16 @@ export const searchAiCapabilities = (
       (left, right) =>
         right.matchedTerms - left.matchedTerms || right.score - left.score || left.entry.name.localeCompare(right.entry.name),
     )
-    .slice(0, limit);
-  return { capabilities: matches.map(({ entry }) => catalogItem(entry)) };
+    .slice(0, DEFAULT_SEARCH_LIMIT);
+  return {
+    tools: matches.map(({ entry }) => ({
+      name: entry.name,
+      title: entry.title,
+      description: entry.description,
+      kind: entry.kind,
+      ...(entry.appId ? { appId: entry.appId } : {}),
+    })),
+  };
 };
 
 const AiHelpCatalogItemSchema = z
@@ -344,26 +361,6 @@ const resolveCapabilityRegistry = async (
   }
 };
 
-/** Resolve the live Help corpus on every provider turn without coupling it to executable app capabilities. */
-export const createAiHelpToolResolver =
-  (input: {
-    conversationId: string;
-    actor: RequestActor;
-    staticTools: AiRuntimeTool[];
-    runtimeContext?: Omit<AiToolPreparationContext, "actor" | "conversationId">;
-    listRegistry: () => Promise<HelpRegistryEntry[]>;
-    onRegistryError?: (error: unknown) => void;
-  }): ToolResolver =>
-  async (): Promise<Tool[]> => {
-    const registry = await resolveHelpRegistry(input.listRegistry, input.onRegistryError);
-    return prepareAiTools({
-      tools: [...input.staticTools, ...createAiHelpTools(registry)],
-      ...input.runtimeContext,
-      actor: input.actor,
-      conversationId: input.conversationId,
-    }).tools;
-  };
-
 const SCHEMA_KEYS = new Set([
   "$ref",
   "type",
@@ -412,34 +409,25 @@ export const reduceAiCapabilityInputSchema = (schema: Record<string, unknown>): 
 export const aiCapabilityInputSchema = (schema: Record<string, unknown>): z.ZodType =>
   z.fromJSONSchema(reduceAiCapabilityInputSchema(schema));
 
-const CatalogItemSchema = z
+const ToolCatalogItemSchema = z
   .object({
     name: z.string(),
-    appId: z.string(),
-    appName: z.string(),
-    appDescription: z.string(),
-    kind: z.enum(["query", "action"]),
     title: z.string(),
     description: z.string(),
+    kind: z.enum(["builtin", "query", "action"]),
+    appId: z.string().optional(),
   })
   .strict();
 
-const AppCatalogItemSchema = z
-  .object({
-    appId: z.string(),
-    appName: z.string(),
-    description: z.string(),
-  })
-  .strict();
+type ToolStateStore = Pick<AiConversationService, "loadTools">;
 
-type CapabilityStateStore = Pick<AiConversationService, "loadCapabilities">;
-
-export const createAiCapabilityMetaTools = (input: {
+export const createAiToolMetaTools = (input: {
   apps: readonly CapabilityRegistryEntry[];
-  catalog: readonly AiCapabilityCatalogEntry[];
+  catalog: readonly AiToolCatalogEntry[];
+  eagerNames: ReadonlySet<string>;
   conversationId: string;
-  store: CapabilityStateStore;
-  maxLoadedCapabilities?: number;
+  store: ToolStateStore;
+  maxLoadedTools?: number;
   unavailableLoadedNames?: readonly string[];
 }): AiRuntimeTool[] => {
   const apps = buildAiCapabilityAppCatalog(input.apps);
@@ -460,7 +448,7 @@ export const createAiCapabilityMetaTools = (input: {
   const unavailableLoadedNames = input.unavailableLoadedNames ?? [];
   const unavailableLoadedNotice =
     unavailableLoadedNames.length > 0
-      ? ` Previously loaded capabilities currently absent from the live registry: ${unavailableLoadedNames
+      ? ` Previously loaded tools currently absent from the live catalog: ${unavailableLoadedNames
           .slice(-MAX_UNAVAILABLE_LOADED_NAMES)
           .join(", ")}${
           unavailableLoadedNames.length > MAX_UNAVAILABLE_LOADED_NAMES
@@ -469,62 +457,42 @@ export const createAiCapabilityMetaTools = (input: {
         }. Treat them as temporarily unavailable; do not infer a permanent product limitation or search repeatedly.`
       : "";
   const search = defineAiTool({
-    name: "search_capabilities",
-    description: `Search installed Cloud app capabilities by concise task terms, app name, app description, or operation metadata.${liveAppDirectory} When the app is known, set its exact appId on the first attempt. Use list_capability_apps for app descriptions. Set kind to query for reads and action for mutations. If one scoped attempt has no relevant result, try at most one broader search, then stop. Returns compact exact names for loading.${unavailableLoadedNotice}`,
+    name: "search_tools",
+    description: `Search available Cloud tools and installed app operations by concise task terms.${liveAppDirectory} When the app is known, set its exact appId on the first attempt. Use list_apps only when the owning app is unclear. This only discovers tools; call load_tools with the exact returned names before using deferred tools.${unavailableLoadedNotice}`,
     inputSchema: z
       .object({
-        query: z.string().trim().min(1).max(200).describe("What the capability should do."),
+        query: z.string().trim().min(1).max(200).describe("What the tool should do."),
         appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
-        kind: z.enum(["query", "action"]).optional().describe("Use query for reading or searching and action for mutations."),
-        limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
       })
       .strict(),
-    outputSchema: z.object({ capabilities: z.array(CatalogItemSchema).max(MAX_SEARCH_LIMIT) }).strict(),
+    outputSchema: z.object({ tools: z.array(ToolCatalogItemSchema).max(DEFAULT_SEARCH_LIMIT) }).strict(),
     approval: "never",
-  }).server(async (args) => searchAiCapabilities(input.catalog, args));
+  }).server(async (args) => searchAiTools(input.catalog, args));
 
   const listApps = defineAiTool({
-    name: "list_capability_apps",
+    name: "list_apps",
     description:
-      "List the live Cloud apps that currently publish capabilities, including their exact app ids, names, and app descriptions. Use this only when the compact live directory is insufficient to identify the owning app.",
+      "List live Cloud apps that currently publish AI-accessible operations. Returns exact app ids and concise app descriptions; use an app id to scope search_tools.",
     inputSchema: z
       .object({
         cursor: z.string().max(80).optional(),
         limit: z.number().int().min(1).max(MAX_APP_LIST_LIMIT).optional(),
       })
       .strict(),
-    outputSchema: z
-      .object({
-        apps: z.array(AppCatalogItemSchema).max(MAX_APP_LIST_LIMIT),
-        page: z.object({ hasMore: z.boolean(), nextCursor: z.string().optional() }).strict(),
-      })
-      .strict(),
+    outputSchema: z.object({ apps: z.record(z.string(), z.string()), nextCursor: z.string().optional() }).strict(),
     approval: "never",
-  }).server(async (args) => listAiCapabilityApps(apps, args));
-
-  const list = defineAiTool({
-    name: "list_capabilities",
-    description: "List installed Cloud app capabilities, optionally filtered by app and query or action kind.",
-    inputSchema: z
-      .object({
-        appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
-        kind: z.enum(["query", "action"]).optional(),
-        cursor: z.string().max(300).optional(),
-        limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
-      })
-      .strict(),
-    outputSchema: z
-      .object({
-        capabilities: z.array(CatalogItemSchema).max(MAX_LIST_LIMIT),
-        page: z.object({ hasMore: z.boolean(), nextCursor: z.string().optional() }).strict(),
-      })
-      .strict(),
-    approval: "never",
-  }).server(async (args) => listAiCapabilities(input.catalog, args));
+  }).server(async (args) => {
+    const result = listAiCapabilityApps(apps, args);
+    return {
+      apps: Object.fromEntries(result.apps.map((app) => [app.appId, app.description])),
+      ...(result.page.nextCursor ? { nextCursor: result.page.nextCursor } : {}),
+    };
+  });
 
   const load = defineAiTool({
-    name: "load_capabilities",
-    description: "Load exact capability names returned by search_capabilities or list_capabilities as ordinary tools for the next turn.",
+    name: "load_tools",
+    description:
+      "Load exact names returned by search_tools as ordinary tools for the next model turn. Built-ins named in the system prompt can be loaded directly without searching.",
     inputSchema: z.object({ names: z.array(z.string().trim().min(1)).min(1).max(25) }).strict(),
     outputSchema: z
       .object({
@@ -538,17 +506,18 @@ export const createAiCapabilityMetaTools = (input: {
   }).server(async ({ names }) => {
     const available = new Set(input.catalog.map((entry) => entry.name));
     const requested = [...new Set(names)];
-    const valid = requested.filter((name) => available.has(name));
+    const eager = requested.filter((name) => input.eagerNames.has(name));
+    const valid = requested.filter((name) => available.has(name) && !input.eagerNames.has(name));
     const missing = requested.filter((name) => !available.has(name));
-    const updated = await input.store.loadCapabilities({
+    const updated = await input.store.loadTools({
       conversationId: input.conversationId,
       names: valid,
-      maxLoadedCapabilities: input.maxLoadedCapabilities,
+      maxLoadedTools: input.maxLoadedTools,
     });
-    return { ...updated, missing };
+    return { ...updated, alreadyLoaded: [...new Set([...eager, ...updated.alreadyLoaded])], missing };
   });
 
-  return [search, listApps, list, load];
+  return [search, load, listApps];
 };
 
 export const createLoadedAiCapabilityTools = (input: {
@@ -568,8 +537,8 @@ export const createLoadedAiCapabilityTools = (input: {
         description: `${entry.title}. ${entry.description} Never retry ACTION_OUTCOME_UNKNOWN. Do not retry unchanged after INTERNAL or INVALID_APP_RESPONSE; report the provider error.`,
         inputSchema: aiCapabilityInputSchema(entry.operation.inputSchema),
         outputSchema: z.unknown(),
-        // Capability Actions request a custom, non-rememberable approval after
-        // their optional live review has resolved.
+        // Capability Actions request a custom approval after their optional
+        // live review has resolved. The review may supply an app-owned scope.
         approval: "never",
       }).server(async (args, context) => {
         if (entry.kind === "action") {
@@ -609,20 +578,20 @@ export const createAiResourceReaderTool = (input: {
     return input.execute(entry, { id: ref.id }, context);
   });
 
-/** Nessi resolver: one registry/load-state snapshot is used for both provider schemas and execution in each turn. */
-export const createAiCapabilityToolResolver =
+/** Nessi resolver: one registry/load-state snapshot drives discovery, loading, schemas, and execution per model turn. */
+export const createAiToolResolver =
   (input: {
     conversationId: string;
     actor: RequestActor;
     staticTools: AiRuntimeTool[];
     runtimeContext?: Omit<AiToolPreparationContext, "actor" | "conversationId">;
-    store: Pick<AiConversationService, "getLoadedCapabilities" | "loadCapabilities">;
-    listRegistry: () => Promise<CapabilityRegistryEntry[]>;
+    store: Pick<AiConversationService, "getLoadedTools" | "loadTools">;
+    listRegistry?: () => Promise<CapabilityRegistryEntry[]>;
     onCapabilityRegistryError?: (error: unknown) => void;
     listHelpRegistry?: () => Promise<HelpRegistryEntry[]>;
     onHelpRegistryError?: (error: unknown) => void;
-    maxLoadedCapabilities?: number;
-    execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
+    maxLoadedTools?: number;
+    execute?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
     review?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<CapabilityActionReview | null>;
     onReview?: (callId: string, review: CapabilityActionReview) => void;
     onPrepared?: (snapshot: {
@@ -633,48 +602,59 @@ export const createAiCapabilityToolResolver =
   }): ToolResolver =>
   async (): Promise<Tool[]> => {
     const [registry, persistedLoadedNames, helpRegistry] = await Promise.all([
-      resolveCapabilityRegistry(input.listRegistry, input.onCapabilityRegistryError),
-      input.store.getLoadedCapabilities({ conversationId: input.conversationId }),
+      input.listRegistry ? resolveCapabilityRegistry(input.listRegistry, input.onCapabilityRegistryError) : [],
+      input.store.getLoadedTools({ conversationId: input.conversationId }),
       input.listHelpRegistry ? resolveHelpRegistry(input.listHelpRegistry, input.onHelpRegistryError) : [],
     ]);
-    const configuredLimit = Math.floor(input.maxLoadedCapabilities ?? 0);
+    const configuredLimit = Math.floor(input.maxLoadedTools ?? 0);
     const loadedNames = configuredLimit > 0 ? persistedLoadedNames.slice(-configuredLimit) : persistedLoadedNames;
     if (loadedNames.length !== persistedLoadedNames.length) {
-      await input.store.loadCapabilities({
+      await input.store.loadTools({
         conversationId: input.conversationId,
         names: [],
-        maxLoadedCapabilities: configuredLimit,
+        maxLoadedTools: configuredLimit,
       });
     }
-    const catalog = buildAiCapabilityCatalog(registry);
+    const capabilityCatalog = buildAiCapabilityCatalog(registry);
+    const helpTools = input.listHelpRegistry ? createAiHelpTools(helpRegistry) : [];
+    const resourceTool =
+      input.execute && capabilityCatalog.length > 0
+        ? createAiResourceReaderTool({ apps: registry, catalog: capabilityCatalog, execute: input.execute })
+        : null;
+    const builtIns = [...input.staticTools, ...helpTools, ...(resourceTool ? [resourceTool] : [])];
+    const catalog = buildAiToolCatalog(builtIns, capabilityCatalog);
     const catalogNames = new Set(catalog.map((entry) => entry.name));
     const unavailableLoadedNames = loadedNames.filter((name) => !catalogNames.has(name));
-    const capabilityTools = [
-      ...createAiCapabilityMetaTools({
+    const eagerNames = new Set(builtIns.map((tool) => tool.def.name).filter((name) => !CLOUD_AI_DEFERRED_BUILTIN_TOOL_NAMES.has(name)));
+    const activeBuiltIns = builtIns.filter((tool) => eagerNames.has(tool.def.name) || loadedNames.includes(tool.def.name));
+    const runtimeTools = [
+      ...createAiToolMetaTools({
         apps: registry,
         catalog,
+        eagerNames,
         conversationId: input.conversationId,
         store: input.store,
-        maxLoadedCapabilities: input.maxLoadedCapabilities,
+        maxLoadedTools: input.maxLoadedTools,
         unavailableLoadedNames,
       }),
-      ...(input.listHelpRegistry ? createAiHelpTools(helpRegistry) : []),
-      createAiResourceReaderTool({ apps: registry, catalog, execute: input.execute }),
-      ...createLoadedAiCapabilityTools({
-        catalog,
-        loadedNames,
-        review: input.review,
-        onReview: input.onReview,
-        execute: input.execute,
-      }),
+      ...activeBuiltIns,
+      ...(input.execute
+        ? createLoadedAiCapabilityTools({
+            catalog: capabilityCatalog,
+            loadedNames,
+            review: input.review,
+            onReview: input.onReview,
+            execute: input.execute,
+          })
+        : []),
     ];
     const prepared = prepareAiTools({
-      tools: [...input.staticTools, ...capabilityTools],
+      tools: runtimeTools,
       ...input.runtimeContext,
       actor: input.actor,
       conversationId: input.conversationId,
     });
-    const catalogByName = new Map(catalog.map((entry) => [entry.name, entry]));
+    const catalogByName = new Map(capabilityCatalog.map((entry) => [entry.name, entry]));
     const presentations = new Map<string, AiToolPresentation>();
     const rememberableApprovals = new Map<string, string>();
     for (const name of loadedNames) {
@@ -689,8 +669,8 @@ export const createAiCapabilityToolResolver =
         title: entry.title,
         capabilityKind: entry.kind,
       });
-      // Capability actions are never globally rememberable: the owning app's
-      // review can depend on the concrete resource and arguments of each call.
+      // Rememberable scopes are resolved by the owning app for each concrete
+      // call and attached when its live review completes.
     }
     input.onPrepared?.({ prepared, presentations, rememberableApprovals });
     return prepared.tools;

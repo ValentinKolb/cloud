@@ -1,5 +1,5 @@
 import type { AiStreamSseEvent, AiTurnBlock, AiTurnSnapshot, AiWireEvent } from "../protocol";
-import { applyWireEventToBlocks, isNewerWireEvent } from "../protocol";
+import { applyWireEventToBlocks, isNewerWireEvent, reconcileResolvedTurnActions, toolBlockId } from "../protocol";
 import type { AiConversation, AiStoredMessage } from "../types";
 
 export type AiActiveTurn = {
@@ -36,6 +36,62 @@ const deriveStatus = (blocks: AiTurnBlock[]): "running" | "waiting_for_action" =
     ? "waiting_for_action"
     : "running";
 
+const overlayBlocks = (base: AiTurnBlock[], overlay: AiTurnBlock[]): AiTurnBlock[] => {
+  const next = [...base];
+  const indexById = new Map(next.map((block, index) => [block.id, index]));
+  for (const block of overlay) {
+    const index = indexById.get(block.id);
+    if (index === undefined) {
+      indexById.set(block.id, next.length);
+      next.push(block);
+    } else {
+      next[index] = block;
+    }
+  }
+  return next;
+};
+
+const normalizeCustomApprovalBlocks = (blocks: AiTurnBlock[]): AiTurnBlock[] => {
+  const normalized: AiTurnBlock[] = [];
+  const indexById = new Map<string, number>();
+  for (const block of blocks) {
+    const parentCallId =
+      block.kind === "tool" && block.status === "awaiting_approval" ? /^(.*)-approval-\d+$/.exec(block.callId)?.[1] : undefined;
+    const next = parentCallId ? { ...block, id: toolBlockId(parentCallId) } : block;
+    const index = indexById.get(next.id);
+    if (index === undefined) {
+      indexById.set(next.id, normalized.length);
+      normalized.push(next);
+    } else {
+      normalized[index] = next;
+    }
+  }
+  return normalized;
+};
+
+/** Never let a same-turn DB/SSE snapshot remove blocks the browser already observed. */
+export const mergeActiveTurn = (previous: AiActiveTurn | null, incoming: AiActiveTurn | null): AiActiveTurn | null => {
+  if (!previous || !incoming || previous.turnId !== incoming.turnId) return incoming;
+  if (previous.attempt !== incoming.attempt) return incoming.attempt > previous.attempt ? incoming : previous;
+
+  const incomingIsNewer = incoming.seq >= previous.seq;
+  const blocks = incomingIsNewer ? overlayBlocks(previous.blocks, incoming.blocks) : overlayBlocks(incoming.blocks, previous.blocks);
+  return {
+    ...(incomingIsNewer ? incoming : previous),
+    seq: Math.max(previous.seq, incoming.seq),
+    blocks,
+    status: deriveStatus(blocks),
+  };
+};
+
+export const reconcileActiveTurnActions = (
+  turn: AiActiveTurn,
+  actions: Parameters<typeof reconcileResolvedTurnActions>[1],
+): AiActiveTurn => {
+  const blocks = reconcileResolvedTurnActions(turn.blocks, actions);
+  return blocks === turn.blocks ? turn : { ...turn, blocks, status: deriveStatus(blocks) };
+};
+
 /** Convert a server turn snapshot into a live active-turn (queued turns count as running). */
 export const activeTurnFromSnapshot = (snapshot: AiTurnSnapshot | null): AiActiveTurn | null => {
   if (!snapshot) return null;
@@ -45,7 +101,7 @@ export const activeTurnFromSnapshot = (snapshot: AiTurnSnapshot | null): AiActiv
     attempt: snapshot.attempt,
     seq: snapshot.seq,
     status: snapshot.status === "waiting_for_action" ? "waiting_for_action" : "running",
-    blocks: snapshot.blocks,
+    blocks: normalizeCustomApprovalBlocks(snapshot.blocks),
     modelProfileId: snapshot.modelProfileId,
   };
 };
@@ -73,7 +129,7 @@ export const reduceProjection = (state: AiChatProjection, event: AiStreamSseEven
     return {
       conversation: event.conversation,
       messages: [...preservedOlder, ...event.messages],
-      activeTurn: activeTurnFromSnapshot(event.activeTurn),
+      activeTurn: mergeActiveTurn(sameConversation ? state.activeTurn : null, activeTurnFromSnapshot(event.activeTurn)),
     };
   }
 

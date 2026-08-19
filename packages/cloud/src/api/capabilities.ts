@@ -342,7 +342,14 @@ export const dispatchCapability = async (params: {
   const resultValidator = params.review
     ? CapabilityActionReviewSchema
     : schemaValidator(`${operation.schemaHash}:result`, capabilityResultJsonSchema(operation.dataSchema));
-  if (!resultValidator || !resultValidator.safeParse(upstreamBody.data).success) {
+  const parsedResult = resultValidator?.safeParse(upstreamBody.data);
+  const parsedReview = params.review ? CapabilityActionReviewSchema.safeParse(upstreamBody.data) : null;
+  const reviewApprovalScopeIsValid =
+    !params.review ||
+    !("approval" in operation) ||
+    !parsedReview?.success ||
+    (operation.approval === "rememberable" ? parsedReview.data.approvalScope !== undefined : parsedReview.data.approvalScope === undefined);
+  if (!resultValidator || !parsedResult?.success || !reviewApprovalScopeIsValid) {
     if (actionWithoutRetrySafety) return outcomeUnknown();
     const invalid = errorResponse(
       "INVALID_APP_RESPONSE",

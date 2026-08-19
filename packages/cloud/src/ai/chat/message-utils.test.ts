@@ -79,7 +79,8 @@ describe("AI usage selectors", () => {
 
 describe("AI tool icons", () => {
   test.each([
-    ["project_context", "ti ti-folder-open"],
+    ["search_project", "ti ti-folder-search"],
+    ["read_project_knowledge", "ti ti-notebook"],
     ["list_files", "ti ti-file-spark"],
     ["read_file", "ti ti-file-spark"],
     ["write_file", "ti ti-file-spark"],
@@ -92,14 +93,14 @@ describe("AI tool icons", () => {
     ["web_extract", "ti ti-world-download"],
     ["search_help", "ti ti-help-hexagon"],
     ["read_help", "ti ti-help-hexagon"],
-    ["search_capabilities", "ti ti-ai-gateway"],
-    ["list_capability_apps", "ti ti-ai-gateway"],
-    ["list_capabilities", "ti ti-ai-gateway"],
-    ["load_capabilities", "ti ti-ai-gateway"],
+    ["search_tools", "ti ti-ai-gateway"],
+    ["load_tools", "ti ti-ai-gateway"],
+    ["list_apps", "ti ti-apps"],
     ["read_cloud_resource", "ti ti-ai-gateway"],
     ["local_bash", "ti ti-terminal-2"],
     ["card", "ti ti-layout-cards"],
     ["survey", "ti ti-forms"],
+    ["text_editor", "ti ti-edit"],
   ])("maps %s to its semantic family", (name, icon) => {
     expect(aiToolIcon(name)).toBe(icon);
   });

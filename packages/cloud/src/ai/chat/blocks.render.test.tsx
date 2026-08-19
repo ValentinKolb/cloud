@@ -14,7 +14,7 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { AiTurnBlockView } = await import("./blocks");
 const { AiChatActionsProvider } = await import("./message-actions");
-const { CloudSurveyBlock } = await import("./visual-tools");
+const { CloudSurveyBlock, CloudTextEditorBlock } = await import("./visual-tools");
 
 const block = (status: "running" | "awaiting_approval" | "completed" | "failed"): AiTurnBlock => ({
   id: "tool-call-1",
@@ -41,14 +41,48 @@ const block = (status: "running" | "awaiting_approval" | "completed" | "failed")
 });
 
 describe("capability tool presentation", () => {
-  test("renders the owning app identity while running and after completion", () => {
+  test("renders compact capability rows with only the capability title", () => {
     for (const status of ["running", "completed", "failed"] as const) {
       const html = renderToString(() => createComponent(AiTurnBlockView, { block: block(status), turnId: "turn-1" }));
-      expect(html).toContain("Contacts: List contacts");
+      expect(html).toContain("List contacts");
+      expect(html).not.toContain("Contacts: List contacts");
       expect(html).toContain("ti-address-book");
-      expect(html).toContain("Query");
+      expect(html).not.toContain("<small>");
       expect(html).toContain("--k2b-chat-activity-accent:#0f766e");
     }
+  });
+
+  test("renders structured tool input and responses as bounded data previews", () => {
+    const completed = block("completed");
+    if (completed.kind !== "tool") throw new Error("tool block missing");
+    completed.args = {
+      mailboxId: "5guDsC",
+      read: true,
+      target: { conversationId: "nTf34n", sourceFolderId: "dScSu4" },
+      fourth: 4,
+      fifth: 5,
+      sixth: 6,
+      seventh: 7,
+      eighth: 8,
+      ninth: 9,
+    };
+    completed.result = {
+      data: { conversationId: "nTf34n", commands: [{ state: "queued" }] },
+      refs: [],
+      links: [],
+    };
+
+    const html = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1" }));
+
+    expect(html.match(/class="k2b-content-structured-data w-full"/g)?.length).toBe(2);
+    expect(html).toContain('class="ml-6 flex max-w-xl flex-col gap-2"');
+    expect(html).toContain('<p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">Input</p>');
+    expect(html).toContain('<p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">Response</p>');
+    expect(html).not.toContain("k2b-content-structured-data__title");
+    expect(html).toContain("1 more row hidden");
+    expect(html).toContain("View raw");
+    expect(html).toContain("mailboxId");
+    expect(html).toContain("commands");
   });
 
   test("renders persisted local Bash calls without execution controls", () => {
@@ -70,6 +104,7 @@ describe("capability tool presentation", () => {
     expect(completedHtml).toContain("Local Bash");
     expect(completedHtml).toContain("ti-terminal-2");
     expect(completedHtml).toContain("git status --short");
+    expect(completedHtml).not.toContain("<small>");
     expect(pendingHtml).toContain("Local Bash");
     expect(pendingHtml).toContain("ti-terminal-2");
     expect(pendingHtml).not.toContain("Approve");
@@ -81,7 +116,7 @@ describe("capability tool presentation", () => {
       id: "project-call-1",
       kind: "tool",
       callId: "project-1",
-      name: "project_context",
+      name: "search_project",
       args: { action: "list" },
       status: "running",
     };
@@ -90,8 +125,8 @@ describe("capability tool presentation", () => {
     const runningHtml = renderToString(() => createComponent(AiTurnBlockView, { block: running, turnId: "turn-1" }));
     const completedHtml = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1" }));
 
-    expect(runningHtml).toContain("ti-folder-open");
-    expect(completedHtml).toContain("ti-folder-open");
+    expect(runningHtml).toContain("ti-folder-search");
+    expect(completedHtml).toContain("ti-folder-search");
   });
 
   test("keeps the app identity on approval prompts", () => {
@@ -147,12 +182,18 @@ describe("capability tool presentation", () => {
         { label: "Send at", value: "2026-08-20T09:00:00+02:00", format: "date-time" },
         { label: "Proposed body", value: "Hello **Ada**\n<script>alert('plain text')</script>", display: "block" },
       ],
-      links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789", title: "Edit draft" }],
+      links: [
+        { rel: "open", href: "/app/contacts" },
+        { rel: "edit", href: "/app/mail/MbA123/drafts/DrG789", title: "Edit draft" },
+      ],
+      approvalScope: "book:default",
     };
     const customHtml = renderApproval(customReview);
     expect(customHtml).toContain("The draft includes an external recipient.");
     expect(customHtml.indexOf("The draft includes an external recipient.")).toBeLessThan(customHtml.indexOf("data-ai-approval-footer"));
     expect(customHtml).toContain('<dt class="font-semibold text-primary">Subject</dt>');
+    expect(customHtml).toContain("border-t border-[var(--k2b-border)] pt-3");
+    expect(customHtml).not.toContain("border-y border-[var(--k2b-border)]");
     expect(customHtml).toContain('<dd class="min-w-0 whitespace-pre-wrap break-words">Release follow-up</dd>');
     expect(customHtml).toContain('<dt class="font-semibold text-primary">Recipients</dt>');
     expect(customHtml).toContain('<time datetime="2026-08-20">');
@@ -164,7 +205,12 @@ describe("capability tool presentation", () => {
     expect(customHtml).toContain("&lt;script>alert('plain text')&lt;/script>");
     expect(customHtml).not.toContain("<strong>Ada</strong>");
     expect(customHtml).toContain('href="/app/mail/MbA123/drafts/DrG789"');
-    expect(customHtml).toContain("Edit draft</a>");
+    expect(customHtml).toContain(">Open in Contacts</span></a>");
+    expect(customHtml).toContain(">Edit draft</span></a>");
+    expect(customHtml.indexOf(">Open in Contacts</span></a>")).toBeGreaterThan(customHtml.indexOf("data-ai-approval-footer"));
+    expect(customHtml.indexOf(">Open in Contacts</span></a>")).toBeLessThan(customHtml.indexOf(">Reject</span>"));
+    expect(customHtml).toContain('data-variant="ghost"');
+    expect(customHtml).not.toContain("book:default");
   });
 });
 
@@ -210,5 +256,79 @@ describe("survey presentation", () => {
     expect(html).toContain("border-t border-[var(--k2b-border)]");
     expect(html).toContain("k2b-button ml-auto");
     expect(html).toContain("Submit");
+  });
+
+  test("collapses an accepted active survey while retaining its answers", () => {
+    const completed: AiTurnBlock = {
+      id: "survey-call",
+      kind: "tool",
+      callId: "call-1",
+      name: "survey",
+      args: {
+        title: "Invoice details",
+        questions: [{ id: "amount", type: "text", label: "Amount" }],
+      },
+      status: "completed",
+      frontendMode: "client_interaction",
+      result: { submitted: true, answers: { amount: "150 EUR" } },
+    };
+
+    const activeHtml = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1", active: true }));
+    const historicalHtml = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1" }));
+
+    expect(activeHtml).toContain("Invoice details · waiting");
+    expect(activeHtml).toContain("150 EUR");
+    expect(activeHtml).not.toContain("Waiting for the assistant to continue");
+    expect(activeHtml).not.toContain("Submit</span>");
+    expect(historicalHtml).toContain("Invoice details · submitted");
+  });
+});
+
+describe("text editor presentation", () => {
+  test.each([
+    ["plain", "Editable text", "k2b-autocomplete"],
+    ["markdown", "Editable Markdown", "k2b-markdown-editor"],
+  ] as const)("renders the existing %s editor with browser-local initial content", (format, label, editorClass) => {
+    const html = renderToString(() =>
+      createComponent(CloudTextEditorBlock, {
+        args: {
+          title: "Review mail",
+          description: "Adjust this draft before I continue.",
+          content: "Hello **Ada**",
+          format,
+          submitLabel: "Use draft",
+        },
+        onSubmit: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Review mail");
+    expect(html).toContain("Adjust this draft before I continue.");
+    expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain(editorClass);
+    expect(html).toContain("13 / 20,000");
+    expect(html).toContain("Use draft");
+    expect(html).toContain("20,000");
+  });
+
+  test("collapses accepted text immediately and keeps the exact source in details", () => {
+    const completed: AiTurnBlock = {
+      id: "text-editor-call",
+      kind: "tool",
+      callId: "call-2",
+      name: "text_editor",
+      args: { title: "Review mail", content: "Initial", format: "markdown" },
+      status: "completed",
+      frontendMode: "client_interaction",
+      result: { submitted: true, content: "Hello **Ada**", format: "markdown" },
+    };
+    const activeHtml = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1", active: true }));
+    const historicalHtml = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1" }));
+
+    expect(activeHtml).toContain("Review mail · waiting");
+    expect(activeHtml).toContain("Hello **Ada**");
+    expect(activeHtml).not.toContain("<strong>Ada</strong>");
+    expect(activeHtml).not.toContain("Waiting for the assistant to continue");
+    expect(historicalHtml).toContain("Review mail · submitted");
   });
 });

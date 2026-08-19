@@ -1,7 +1,7 @@
 import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@k2b/nessi";
 import type { Usage } from "@k2b/nessi/ai";
 import { sql } from "bun";
-import { CapabilityActionReviewSchema, type CapabilityActionReview } from "../contracts/capabilities";
+import { type CapabilityActionReview, CapabilityActionReviewSchema } from "../contracts/capabilities";
 import { logger } from "../services/logging";
 import { toPgTextArray } from "../services/postgres";
 import type { AiTurnBlock } from "./protocol";
@@ -846,7 +846,7 @@ export const aiConversations: AiConversationService = {
         project_id,
         draft_content,
         draft_revision,
-        loaded_capabilities,
+        loaded_tools,
         draft_updated_at,
         created_by_user_id
       )
@@ -857,7 +857,7 @@ export const aiConversations: AiConversationService = {
         ${input.projectId ?? null}::uuid,
         ${JSON.stringify(input.draft ?? [])}::jsonb,
         ${input.draft?.length ? 1 : 0},
-        ${toPgTextArray(input.preloadCapabilities ?? [])}::text[],
+        ${toPgTextArray(input.preloadTools ?? [])}::text[],
         ${input.draft?.length ? new Date() : null},
         ${input.ownerUserId}
       WHERE ${input.projectId ?? null}::uuid IS NULL
@@ -1174,21 +1174,21 @@ export const aiConversations: AiConversationService = {
       };
     }),
 
-  getLoadedCapabilities: async (input) => {
-    const rows = await sql<{ loaded_capabilities: string[] | null }[]>`
-      SELECT loaded_capabilities
+  getLoadedTools: async (input) => {
+    const rows = await sql<{ loaded_tools: string[] | null }[]>`
+      SELECT loaded_tools
       FROM ai.conversations
       WHERE id = ${input.conversationId}::uuid
         AND archived_at IS NULL
     `;
     if (!rows[0]) throw new Error(`AI conversation ${input.conversationId} not found`);
-    return rows[0].loaded_capabilities ?? [];
+    return rows[0].loaded_tools ?? [];
   },
 
-  loadCapabilities: async (input) =>
+  loadTools: async (input) =>
     sql.begin(async (tx) => {
-      const rows = await tx<{ loaded_capabilities: string[] | null }[]>`
-        SELECT loaded_capabilities
+      const rows = await tx<{ loaded_tools: string[] | null }[]>`
+        SELECT loaded_tools
         FROM ai.conversations
         WHERE id = ${input.conversationId}::uuid
           AND archived_at IS NULL
@@ -1196,13 +1196,13 @@ export const aiConversations: AiConversationService = {
       `;
       if (!rows[0]) throw new Error(`AI conversation ${input.conversationId} not found`);
 
-      const current = rows[0].loaded_capabilities ?? [];
+      const current = rows[0].loaded_tools ?? [];
       const requested = [...new Set(input.names.map((name) => name.trim()).filter(Boolean))];
       const currentSet = new Set(current);
       const alreadyLoaded = requested.filter((name) => currentSet.has(name));
       const added = requested.filter((name) => !currentSet.has(name));
       const combined = [...current, ...added];
-      const configuredLimit = Math.floor(input.maxLoadedCapabilities ?? 0);
+      const configuredLimit = Math.floor(input.maxLoadedTools ?? 0);
       const limit = Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : 0;
       const evicted = limit > 0 ? combined.slice(0, Math.max(0, combined.length - limit)) : [];
       const retained = evicted.length > 0 ? combined.slice(evicted.length) : combined;
@@ -1211,7 +1211,7 @@ export const aiConversations: AiConversationService = {
 
       await tx`
         UPDATE ai.conversations
-        SET loaded_capabilities = ${toPgTextArray(retained)}::text[]
+        SET loaded_tools = ${toPgTextArray(retained)}::text[]
         WHERE id = ${input.conversationId}::uuid
       `;
       return { loaded, alreadyLoaded, evicted };

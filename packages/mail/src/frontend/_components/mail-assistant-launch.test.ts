@@ -40,7 +40,7 @@ const conversation = {
 };
 
 describe("Mail Assistant launch", () => {
-  test("launches with the draft, exact unique contacts, canonical links, and useful capabilities", async () => {
+  test("launches with the draft, exact unique contacts, canonical links, and useful tools", async () => {
     const calls: Array<[string, RequestInit | undefined]> = [];
     globalThis.fetch = Object.assign(
       async (request: RequestInfo | URL, init?: RequestInit) => {
@@ -90,7 +90,8 @@ describe("Mail Assistant launch", () => {
           },
         ],
       },
-      preloadCapabilities: [
+      preloadTools: [
+        { name: "text_editor" },
         { appId: "mail", kind: "query", id: "draft.read" },
         { appId: "mail", kind: "action", id: "draft.update" },
         { appId: "mail", kind: "action", id: "draft.send" },
@@ -144,13 +145,9 @@ describe("Mail Assistant launch", () => {
 
     const launchPayload = JSON.parse(launchBody);
     expect(launchPayload.draft.content).toHaveLength(2);
-    expect(launchPayload.preloadCapabilities.map(({ appId }: { appId: string }) => appId)).toEqual([
-      "mail",
-      "mail",
-      "mail",
-      "mail",
-      "mail",
-    ]);
+    expect(
+      launchPayload.preloadTools.filter((tool: { appId?: string }) => tool.appId).map(({ appId }: { appId: string }) => appId),
+    ).toEqual(["mail", "mail", "mail", "mail", "mail"]);
   });
 
   test("bounds recipient resolution and attached Contact resources", async () => {

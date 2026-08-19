@@ -27,7 +27,8 @@ const launch = await launchAssistant({
       { type: "resource", ref: { type: "mail.draft", id: draftId } },
     ],
   },
-  preloadCapabilities: [
+  preloadTools: [
+    { name: "text_editor" },
     { appId: "mail", kind: "query", id: "draft.read" },
     { appId: "mail", kind: "action", id: "draft.update" },
   ],
@@ -36,10 +37,12 @@ const launch = await launchAssistant({
 window.location.assign(launch.href);
 ```
 
-The request may provide at most eight live Capability names. Core validates and
-stores their compiled names so the first turn can load them without discovery.
-This is a prompt-budget optimization, not authorization. Every invocation still
-runs as the current user against the owning application.
+The request may preload at most eight tools. A `{ name }` entry selects a Cloud
+built-in; an `{ appId, kind, id }` entry selects a live app Query or Action.
+Core validates both and stores their exact resolved names so the first turn can
+use them without discovery. Preloading is a prompt-budget optimization, not
+authorization. Every app invocation still runs as the current user against the
+owning application.
 
 The structured composer draft contains text, exact stored-file versions, and
 zero or more Cloud resource refs. Save it with `PUT
@@ -52,13 +55,20 @@ conversation and then stores their returned versions in the same draft. The
 JSON create endpoint itself accepts text and resource refs, not unuploaded file
 paths.
 
-The default tool source adds card and survey interactions, bounded
-conversation-file tools (including configured image inspection), arithmetic and deterministic date calculation, and web search or
-extraction when Firecrawl is configured. These built-in tools use
-`approval: "never"`. They provide no arbitrary code execution, host access, or
-network access beyond the explicit web tools. Enable the default set only when
-the chat needs those capabilities. See
+The default tool source keeps discovery, Help, `read_file`, and `view_image`
+available. Configured `web_search` and `web_extract` are also always available
+together. Cards, surveys, the long-form text editor, file writes and
+presentation, Markdown-to-PDF, and calculation load on demand. Built-in usage
+hints remain in the system prompt even while their schemas are deferred. These
+tools provide no arbitrary code execution, host access, or network access
+beyond the explicit web tools. See
 [Tools and approvals](/en/docs/ai/tools-and-approvals).
+
+The `text_editor` frontend interaction lets the model provide one complete
+plain-text or Markdown draft for the user to revise. Unsubmitted edits are
+browser-local and may be lost on reload; only the submitted result becomes a
+durable turn action. Submitting reviewed text does not save a domain resource
+or approve a later Capability Action such as updating or sending mail.
 
 An interactive Assistant CLI turn may additionally request the fixed
 `local_bash` client tool. It is not part of the default set: Cloud persists and
@@ -66,10 +76,10 @@ streams its calls but has no shell executor, and browser clients neither opt in
 nor register a handler. See the local CLI boundary in
 [Tools and approvals](/en/docs/ai/tools-and-approvals#run-an-optional-tool-in-a-local-cli).
 
-Personal conversations always enable the compact Cloud app capability discovery
-tools. Capability tools
-require a model profile with `tools` support and a current direct user actor;
-service-backed agent identities are not part of this contract.
+Personal conversations expose the compact tool discovery and loading tools.
+Live app Queries and Actions additionally require `appTools: true`, a model
+profile with `tools` support, and a current direct user actor; service-backed
+agent identities are not part of this contract.
 
 The shared platform prompt separates platform rules, a short execution loop,
 conditional tool guidance, and labeled application context. It tells agents to

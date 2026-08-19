@@ -3,7 +3,7 @@ import type { OutboundEvent, Provider, Tool } from "@k2b/nessi";
 import { __aiExecutorTest } from "./executor";
 import { streamBlockId, toolBlockId } from "./protocol";
 
-const { applyToolRoundPolicy, createEventMapper } = __aiExecutorTest;
+const { applyToolRoundPolicy, createEventMapper, rebuildBlocksFromMessages } = __aiExecutorTest;
 
 const turn = { agentId: "cloud", loopId: "turn-1", turnId: "turn-1:turn:0", turnIndex: 0 };
 
@@ -135,10 +135,44 @@ describe("nessi block event mapping", () => {
     expect(ops[0]).toMatchObject({
       type: "block_set",
       block: {
+        id: toolBlockId("call-9"),
         callId: "call-9-approval-0",
         status: "awaiting_approval",
         approval: { message: review.message, review },
       },
+    });
+  });
+
+  test("reconnect rebuild replaces the parent call with its pending custom approval", () => {
+    const blocks = rebuildBlocksFromMessages(
+      [
+        {
+          seq: 1,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_call", id: "call-9", name: "mail__action__conversation_dot_mark", args: { read: true } }],
+          },
+        },
+      ] as never,
+      [
+        {
+          callId: "call-9-approval-0",
+          kind: "custom_approval",
+          name: "mail__action__conversation_dot_mark",
+          args: { read: true },
+          message: "Mark read.",
+          review: { message: "Mark read." },
+          allowAlways: true,
+          frontendMode: null,
+        },
+      ] as never,
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      id: toolBlockId("call-9"),
+      callId: "call-9-approval-0",
+      status: "awaiting_approval",
     });
   });
 

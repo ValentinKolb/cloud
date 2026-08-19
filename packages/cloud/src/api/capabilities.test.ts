@@ -37,7 +37,8 @@ const compiled = compileCapabilities(
         destructive: true,
         openWorld: false,
         idempotency: "none",
-        review: async ({ id, name }) => ok({ message: `Rename ${id} to ${name}.` }),
+        approval: "rememberable",
+        review: async ({ id, name }) => ok({ message: `Rename ${id} to ${name}.`, approvalScope: `item:${id}` }),
         run: async ({ id, name }) => ok({ data: { id, name } }),
       },
     },
@@ -183,7 +184,7 @@ describe("capability API", () => {
       fetch: async (input) => {
         requested = true;
         return String(input).endsWith("/review")
-          ? Response.json({ message: "Rename one to Two." })
+          ? Response.json({ message: "Rename one to Two.", approvalScope: "item:one" })
           : Response.json({ data: { id: "one", name: "Two" } });
       },
     });
@@ -480,7 +481,7 @@ describe("capability API", () => {
       authenticate,
       fetch: async (input) => {
         requestedUrl = String(input);
-        return Response.json({ message: "Rename one to Two." });
+        return Response.json({ message: "Rename one to Two.", approvalScope: "item:one" });
       },
     });
     const response = await routes.request("/capabilities/v1/actions/demo/rename/review", {
@@ -491,7 +492,7 @@ describe("capability API", () => {
 
     expect(response.status).toBe(200);
     expect(requestedUrl).toBe("http://demo:3000/api/_internal/capabilities/v1/actions/rename/review");
-    expect(await response.json()).toEqual({ message: "Rename one to Two." });
+    expect(await response.json()).toEqual({ message: "Rename one to Two.", approvalScope: "item:one" });
   });
 
   test("rejects an Action review that is not advertised", async () => {
@@ -519,6 +520,22 @@ describe("capability API", () => {
       getCapability: async () => entry(),
       authenticate,
       fetch: async () => Response.json({ message: 42 }),
+    });
+    const response = await routes.request("/capabilities/v1/actions/demo/rename/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "INVALID_APP_RESPONSE" });
+  });
+
+  test("rejects a rememberable Action review without its app-owned scope", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => Response.json({ message: "Rename one to Two." }),
     });
     const response = await routes.request("/capabilities/v1/actions/demo/rename/review", {
       method: "POST",

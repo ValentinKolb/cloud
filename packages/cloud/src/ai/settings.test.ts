@@ -51,10 +51,10 @@ describe("AI settings model registry", () => {
 
   test("keeps profile limits optional and accepts zero or negative as unlimited", async () => {
     for (const limit of [undefined, 0, -1, 12]) {
-      const state = await resolve({ profilesJson: profilesJson([{ maxLoadedCapabilities: limit, maxToolRounds: limit }]) });
+      const state = await resolve({ profilesJson: profilesJson([{ maxLoadedTools: limit, maxToolRounds: limit }]) });
       expect(state.ok).toBe(true);
       if (state.ok) {
-        expect(state.profiles[0]?.maxLoadedCapabilities).toBe(limit);
+        expect(state.profiles[0]?.maxLoadedTools).toBe(limit);
         expect(state.profiles[0]?.maxToolRounds).toBe(limit);
       }
     }

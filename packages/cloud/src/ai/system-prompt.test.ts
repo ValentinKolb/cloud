@@ -60,7 +60,7 @@ describe("renderAiPlatformPrompt", () => {
     expect(prompt).toContain("- card: show one compact highlight.");
     expect(prompt).toContain("- survey: collect a structured answer.");
     expect(prompt).toContain("- present: deliver a produced file.");
-    expect(prompt).toContain("These short hints describe when Cloud wants the available tools used");
+    expect(prompt).toContain("These short hints cover Cloud built-ins");
     expect(prompt).toContain("Prefer plain text when native UI would not improve the result");
   });
 
@@ -119,20 +119,26 @@ describe("composeAiSystemPrompt", () => {
 
   test("includes the compact current-user capability contract only when enabled", () => {
     const disabled = composeAiSystemPrompt({ globalInstructions: "", user });
-    const enabled = composeAiSystemPrompt({ globalInstructions: "", user, helpEnabled: true, capabilitiesEnabled: true });
+    const enabled = composeAiSystemPrompt({
+      globalInstructions: "",
+      user,
+      helpEnabled: true,
+      toolDiscoveryEnabled: true,
+      appToolsEnabled: true,
+    });
 
-    expect(disabled).not.toContain("# Cloud capabilities");
-    expect(enabled).toContain("# Cloud capabilities");
+    expect(disabled).not.toContain("# Cloud app tools");
+    expect(enabled).toContain("# Tool discovery");
+    expect(enabled).toContain("# Cloud app tools");
     expect(enabled).toContain("current user with current permissions");
     expect(enabled).toContain("owning app authorizes every call");
     expect(enabled).toContain("Catalog visibility never proves resource access");
-    expect(enabled).toContain("compact live app directory from capability discovery");
-    expect(enabled).toContain("do not expect a static app list in this prompt");
-    expect(enabled).toContain("use its exact appId for the first search or list");
+    expect(enabled).toContain("Use list_apps only when the owning Cloud app is unclear");
+    expect(enabled).toContain("use its exact appId for the first search");
     expect(enabled).toContain("Try at most one broader search");
     expect(enabled).toContain("load only the needed names");
     expect(enabled).toContain("temporarily unavailable");
-    expect(enabled).toContain("Never infer available capabilities from other tool descriptions");
+    expect(enabled).toContain("it is not a search filter");
     expect(enabled).toContain("Render returned Cloud open or edit hrefs exactly as Markdown links");
     expect(enabled).toContain("never invent a Cloud URL");
   });

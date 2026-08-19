@@ -107,6 +107,7 @@ export const CapabilityActionReviewSchema = z
     message: z.string().min(1).max(1000).describe("Plain-text description of the concrete Action consequence."),
     details: z.array(CapabilityActionReviewDetailSchema).max(20).optional(),
     links: z.array(CapabilitySemanticLinkSchema).max(10).optional(),
+    approvalScope: z.string().min(1).max(200).optional().describe("Opaque app-owned scope for a rememberable Action approval."),
   })
   .strict();
 

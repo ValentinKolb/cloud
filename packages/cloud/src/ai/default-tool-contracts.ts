@@ -63,6 +63,22 @@ export const CloudAiSurveyOutputSchema = z.object({
   answers: z.record(z.string(), z.unknown()).default({}),
 });
 
+export const CLOUD_AI_TEXT_EDITOR_MAX_CHARS = 20_000;
+
+export const CloudAiTextEditorInputSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(1_000).optional(),
+  content: z.string().max(CLOUD_AI_TEXT_EDITOR_MAX_CHARS),
+  format: z.enum(["plain", "markdown"]).default("plain"),
+  submitLabel: z.string().trim().min(1).max(40).default("Continue"),
+});
+
+export const CloudAiTextEditorOutputSchema = z.object({
+  submitted: z.literal(true),
+  content: z.string().max(CLOUD_AI_TEXT_EDITOR_MAX_CHARS),
+  format: z.enum(["plain", "markdown"]),
+});
+
 export const CloudAiLocalBashInputSchema = z.object({
   command: z.string().trim().min(1).max(20_000),
 });
@@ -79,5 +95,7 @@ export type CloudAiCardInput = z.infer<typeof CloudAiCardInputSchema>;
 export type CloudAiCardOutput = z.infer<typeof CloudAiCardOutputSchema>;
 export type CloudAiSurveyInput = z.infer<typeof CloudAiSurveyInputSchema>;
 export type CloudAiSurveyOutput = z.infer<typeof CloudAiSurveyOutputSchema>;
+export type CloudAiTextEditorInput = z.infer<typeof CloudAiTextEditorInputSchema>;
+export type CloudAiTextEditorOutput = z.infer<typeof CloudAiTextEditorOutputSchema>;
 export type CloudAiLocalBashInput = z.infer<typeof CloudAiLocalBashInputSchema>;
 export type CloudAiLocalBashOutput = z.infer<typeof CloudAiLocalBashOutputSchema>;

@@ -29,7 +29,7 @@ describe("launchAssistant", () => {
           },
         ],
       },
-      preloadCapabilities: [{ appId: "mail", kind: "query" as const, id: "draft.read" }],
+      preloadTools: [{ appId: "mail", kind: "query" as const, id: "draft.read" }, { name: "text_editor" }],
     };
     const launch = await launchAssistant(input);
 

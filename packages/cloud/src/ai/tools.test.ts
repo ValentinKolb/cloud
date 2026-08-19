@@ -7,6 +7,8 @@ import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";
 import {
   CloudAiCardInputSchema,
+  CloudAiTextEditorInputSchema,
+  CloudAiTextEditorOutputSchema,
   createCloudAiLocalBashTool,
   createConfiguredDefaultCloudAiTools,
   createDefaultCloudAiTools,
@@ -159,15 +161,17 @@ describe("AI tools", () => {
     expect(prepared.tools[0]?.def.outputSchema).toBe(tool.def.outputSchema);
   });
 
-  test("ships default visual and survey tools as frontend tools", () => {
+  test("ships default visual and interaction tools as frontend tools", () => {
     const prepared = prepareAiTools({ tools: createDefaultCloudAiTools(), actor });
 
-    expect(prepared.tools.map((tool) => tool.def.name)).toEqual(["card", "survey"]);
+    expect(prepared.tools.map((tool) => tool.def.name)).toEqual(["card", "survey", "text_editor"]);
     expect(prepared.tools.every((tool) => tool.kind === "client")).toBe(true);
     expect(prepared.frontendModes.get("card")).toBe("client_view");
     expect(prepared.frontendModes.get("survey")).toBe("client_interaction");
+    expect(prepared.frontendModes.get("text_editor")).toBe("client_interaction");
     expect(prepared.approvalPolicies.get("card")).toBe("never");
     expect(prepared.approvalPolicies.get("survey")).toBe("never");
+    expect(prepared.approvalPolicies.get("text_editor")).toBe("never");
   });
 
   test("keeps local Bash outside the default toolset", () => {
@@ -187,6 +191,7 @@ describe("AI tools", () => {
     expect(withoutWeb.map((tool) => tool.def.name)).toEqual([
       "card",
       "survey",
+      "text_editor",
       "list_files",
       "read_file",
       "write_file",
@@ -198,6 +203,7 @@ describe("AI tools", () => {
     expect(withWeb.map((tool) => tool.def.name)).toEqual([
       "card",
       "survey",
+      "text_editor",
       "list_files",
       "read_file",
       "write_file",
@@ -211,6 +217,7 @@ describe("AI tools", () => {
     expect(aiToolPromptHints(withoutWeb).map((hint) => hint.name)).toEqual([
       "card",
       "survey",
+      "text_editor",
       "list_files",
       "read_file",
       "write_file",
@@ -244,6 +251,18 @@ describe("AI tools", () => {
       trendValue: "-8%",
       trendDirection: "down",
     });
+  });
+
+  test("bounds and defaults the long-form text editor contract", () => {
+    expect(CloudAiTextEditorInputSchema.parse({ title: "Review", content: "Hello" })).toEqual({
+      title: "Review",
+      content: "Hello",
+      format: "plain",
+      submitLabel: "Continue",
+    });
+    expect(CloudAiTextEditorOutputSchema.safeParse({ submitted: true, content: "# Hello", format: "markdown" }).success).toBe(true);
+    expect(CloudAiTextEditorInputSchema.safeParse({ title: "Review", content: "x".repeat(20_001) }).success).toBe(false);
+    expect(CloudAiTextEditorOutputSchema.safeParse({ submitted: false, content: "Hello", format: "plain" }).success).toBe(false);
   });
 
   test("rejects chart and table payloads for the KISS card tool", () => {

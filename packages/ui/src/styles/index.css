@@ -5503,6 +5503,10 @@
   justify-items: end;
 }
 
+.k2b-ui .k2b-chat-message[data-role="assistant"] {
+  width: 100%;
+}
+
 .k2b-ui .k2b-chat-message[data-role="user"] .k2b-chat-message__bubble {
   padding: 0.625rem 0.75rem;
   border-radius: var(--k2b-radius-surface);

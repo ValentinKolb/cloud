@@ -52,7 +52,7 @@ const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not
           requestedModelId: project?.defaultModelProfileId ?? undefined,
           systemPrompt: personalAiSystemPrompt(conversation.shortId),
           project: project ?? undefined,
-          toolSource: { kind: "default", capabilities: true },
+          toolSource: { kind: "default", appTools: true },
           toolApprovalContext: { actorUserId: user.id },
         },
         userMessage: { role: "user", content: [{ type: "text", text }] },

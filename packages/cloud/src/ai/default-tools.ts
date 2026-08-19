@@ -5,6 +5,8 @@ import {
   CloudAiLocalBashOutputSchema,
   CloudAiSurveyInputSchema,
   CloudAiSurveyOutputSchema,
+  CloudAiTextEditorInputSchema,
+  CloudAiTextEditorOutputSchema,
 } from "./default-tool-contracts";
 import {
   createCloudAiCalculateTool,
@@ -32,6 +34,10 @@ export {
   CloudAiSurveyInputSchema,
   type CloudAiSurveyOutput,
   CloudAiSurveyOutputSchema,
+  type CloudAiTextEditorInput,
+  CloudAiTextEditorInputSchema,
+  type CloudAiTextEditorOutput,
+  CloudAiTextEditorOutputSchema,
 } from "./default-tool-contracts";
 
 export const createCloudAiCardTool = () =>
@@ -56,6 +62,18 @@ export const createCloudAiSurveyTool = () =>
     promptHint: "collect explicit choices, ratings, or short structured answers from the user — instead of writing option lists in text.",
   }).clientInteraction();
 
+export const createCloudAiTextEditorTool = () =>
+  defineAiTool({
+    name: "text_editor",
+    description:
+      "Let the user review and edit one substantial plain-text or Markdown draft inside the chat. Provide the complete proposed content. Use this for mail bodies, letters, notes, or other long-form text that the user should revise before the assistant continues. This only returns the reviewed text; it does not save or send anything.",
+    inputSchema: CloudAiTextEditorInputSchema,
+    outputSchema: CloudAiTextEditorOutputSchema,
+    approval: "never",
+    promptHint:
+      "let the user review or revise a substantial text draft before continuing — not for short answers or read-only final responses.",
+  }).clientInteraction();
+
 export const createCloudAiLocalBashTool = () =>
   defineAiTool({
     name: "local_bash",
@@ -68,7 +86,20 @@ export const createCloudAiLocalBashTool = () =>
       "use local_bash only when work on the user's local CLI computer is necessary; every command requires local confirmation and its result must be checked.",
   }).client();
 
-export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool()];
+export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool(), createCloudAiTextEditorTool()];
+
+/** Built-ins advertised through discovery and loaded only when needed. */
+export const CLOUD_AI_DEFERRED_BUILTIN_TOOL_NAMES = new Set([
+  "card",
+  "survey",
+  "text_editor",
+  "list_files",
+  "write_file",
+  "markdown_to_pdf",
+  "present",
+  "calculate",
+  "read_cloud_resource",
+]);
 
 export const createConfiguredDefaultCloudAiTools = async (config?: {
   firecrawlApiKey?: string | null;

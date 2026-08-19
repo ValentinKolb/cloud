@@ -1,3 +1,4 @@
+import { Button } from "@k2b/ui";
 import type { AiProject } from "@valentinkolb/cloud/ai";
 import type { JSX } from "solid-js";
 
@@ -52,22 +53,26 @@ export default function AssistantEmptyChat(props: {
         <div class="relative">
           <div class="relative z-10">{props.composer}</div>
           <div class="mx-4 -mt-1 rounded-b-xl border border-t-0 border-[var(--k2b-border)] bg-[var(--k2b-surface)] px-1.5 pb-1 pt-2">
-            <button
-              type="button"
-              class="flex min-h-7 w-full items-center justify-between gap-2 rounded-lg px-1.5 text-left text-[0.6875rem] text-[var(--k2b-text-muted)] transition-colors hover:text-[var(--k2b-ai-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)] disabled:cursor-wait disabled:opacity-60"
+            <Button
+              size="xs"
+              variant="ghost"
+              class="assistant-empty-project-trigger w-full"
+              style={{ width: "100%" }}
               aria-label="Choose a Project for this chat"
               disabled={props.choosingProject}
               onClick={props.onChooseProject}
             >
-              <span class="flex min-w-0 items-center gap-1.5">
-                <i
-                  class={`${props.choosingProject ? "ti ti-loader-2 k2b-spin" : selectedProject() ? "ti ti-folder-open" : "ti ti-folder"} text-xs`}
-                  aria-hidden="true"
-                />
-                <span class="truncate">{selectedProject()?.name ?? "No Project"}</span>
+              <span class="flex min-w-0 items-center justify-between gap-2" style={{ width: "100%" }}>
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <i
+                    class={`${props.choosingProject ? "ti ti-loader-2 k2b-spin" : selectedProject() ? "ti ti-folder-open" : "ti ti-folder"}`}
+                    aria-hidden="true"
+                  />
+                  <span class="truncate">{selectedProject()?.name ?? "No Project"}</span>
+                </span>
+                <i class="ti ti-chevron-down shrink-0" aria-hidden="true" />
               </span>
-              <i class="ti ti-chevron-down shrink-0 text-xs" aria-hidden="true" />
-            </button>
+            </Button>
           </div>
         </div>
 

@@ -112,8 +112,17 @@ user.
 
 `promptHint` adds one short usage nudge to the system prompt. Use it when the
 model could finish with plain text but Cloud prefers the tool-backed experience,
-as with cards, surveys, or presented files. Keep operation details and arguments
-in the tool description and schema; the hint does not replace either.
+as with cards, surveys, the long-form text editor, or presented files. Keep
+operation details and arguments in the tool description and schema; the hint
+does not replace either.
+
+The built-in `text_editor` is a `clientInteraction()` for one complete
+plain-text or Markdown draft of at most 20,000 characters. It is appropriate
+when the user should revise substantial text before the model continues. The
+browser keeps unsubmitted edits only in local component state, so reloading may
+restore the original tool input. A submitted result is durable, but it only
+returns reviewed text; writing a Mail draft, changing a Note, or sending a
+message remains a separate authorized Capability Action with its own approval.
 
 `view_image` is a safe read over one authorized conversation or read-only
 Project file. Its input is an absolute file path and optional bounded guidance;
@@ -133,28 +142,26 @@ again on a later model turn. See
 [In-product Help](/en/docs/platform/help) for the owning declaration and
 exposure rules.
 
-## Discover Cloud app capabilities
+## Discover and load tools
 
 A personal chat uses the live capability catalog through its default tool
 source:
 
 ```ts
-toolSource: { kind: "default", capabilities: true }
+toolSource: { kind: "default", appTools: true }
 ```
 
-Capability-enabled chats expose four bounded discovery tools from the current
-live registry snapshot:
+Tool-capable personal chats keep three bounded discovery tools available:
 
-- `search_capabilities` includes a bounded directory of live app IDs and names,
-  then finds operations by task, app name, app description, operation metadata,
-  and `query` or `action` kind;
-- `list_capability_apps` returns the live apps with their exact IDs, names, and
-  descriptions when the compact directory is not enough;
-- `list_capabilities` lists a bounded page, optionally filtered by application
-  and kind;
-- `load_capabilities` retains exact names returned by discovery.
+- `search_tools` searches Cloud built-ins and live app operations by task. Its
+  optional `appId` scopes app operations; `kind` is returned as metadata and is
+  not a search filter. Searching never loads a tool;
+- `load_tools` retains exact names returned by search. Built-ins named in the
+  system prompt may be loaded directly without searching;
+- `list_apps` returns a bounded map of exact app IDs to their live descriptions
+  when the owning app is unclear.
 
-A loaded capability becomes an ordinary named tool on the next model turn.
+A loaded built-in or app operation becomes an ordinary named tool on the next model turn.
 Cloud gives the model the operation's structure, required fields,
 descriptions, enums, and useful formats. The provider remains responsible for
 authoritative input validation and the complete result contract. If an
@@ -168,8 +175,8 @@ replays the user's browser cookie, bearer token, resource API key, or service
 account credential for this path. An unavailable app or denied resource fails
 that tool call without granting fallback access.
 
-The chat stores loaded operation names, not provider credentials or private
-contracts. When a result contains a semantic `open` or `edit` link, clients use
+The chat stores loaded tool names, not provider credentials or private contracts.
+When a result contains a semantic `open` or `edit` link, clients use
 that exact path instead of inferring a route from a resource ref.
 
 Never retry `ACTION_OUTCOME_UNKNOWN`. `INVALID_APP_RESPONSE` and `INTERNAL`
@@ -189,15 +196,14 @@ AI Core treats capability operation kinds as the approval boundary:
 | --- | --- |
 | Query | Execute without interactive approval |
 | Action without `approval` | Require fresh approval for that call |
-| Action with `approval: "rememberable"` | Require fresh approval for that call |
+| Action with `approval: "rememberable"` | Offer one-time approval or **Always approve** for the app-owned review scope |
 
 Capability manifests describe objective Action properties such as `openWorld`,
 `destructive`, idempotency, and the optional availability of a review. AI Core
-currently does not remember Capability Action approvals, including Actions
-that declare `approval: "rememberable"`: a safe reusable scope can depend on
-the owning app's concrete arguments and resources. Add remembered Capability
-approval only with a canonical app-owned scope contract; do not infer it from a
-conversation attachment or resource ID.
+uses the canonical app-owned scope returned by a rememberable Action's live
+review for the concrete arguments. A remembered choice matches the current
+actor, qualified Action, and exact scope. AI Core never infers a broader scope
+from an attachment, resource ID, or presentation metadata.
 
 This approval confirms the user's intent for one model-requested call. It is
 not application authorization. After approval, the owning app validates the
@@ -211,9 +217,9 @@ An Action may publish the fixed optional
 After the model requests such an Action, AI Core resolves the review with the
 current user and the same arguments before presenting the approval.
 
-The review is UI-only. Cloud renders its bounded message, details, and
-same-origin link paths as escaped plain text above the validated Action
-arguments. It is never added to model context or returned as a tool result.
+The review is UI-only. Cloud renders its bounded message and details as escaped
+plain text, with same-origin links in the approval footer. It is never added to
+model context or returned as a tool result.
 The app name, icon, Action title, and risk treatment continue to come from the
 live registry and manifest. Once presented, the resolved review is stored with
 the pending action and active-turn snapshot; reconnecting or reopening the chat
@@ -240,10 +246,9 @@ Show the tool name, requested inputs, and consequence before approval. The
 primary action uses a split button; its **Details** item toggles the complete
 validated arguments for technical verification. Do not require ordinary users
 to read that raw representation: every value needed for an informed decision
-belongs directly in the review card. Capability Actions currently expose only
-one-time approval. For tools that do allow a remembered choice, approving once
-stays the primary action and **Always approve** remains an explicit secondary
-choice.
+belongs directly in the review card. Approving once stays the primary action;
+when the owning Action supplies a reusable scope, **Always approve** remains an
+explicit secondary choice.
 When a Capability review is available, show it instead of making the user
 interpret opaque IDs in the raw arguments. Review details default to the
 compact `inline` presentation; `display: "block"` gives long plain-text values

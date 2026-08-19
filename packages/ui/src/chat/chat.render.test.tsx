@@ -550,7 +550,9 @@ describe("@k2b/ui portable chat family", () => {
   test("renders the minimal shared streaming indicator", () => {
     const css = readFileSync(resolve(import.meta.dir, "../styles/index.css"), "utf8");
     const dotsRule = css.match(/\.k2b-ui \.k2b-chat-progress-dots > span \{([^}]+)\}/)?.[1] ?? "";
+    const assistantMessageRule = css.match(/\.k2b-ui \.k2b-chat-message\[data-role="assistant"\] \{([^}]+)\}/)?.[1] ?? "";
 
+    expect(assistantMessageRule).toContain("width: 100%;");
     expect(dotsRule).toContain("width: 0.3rem;");
     expect(dotsRule).toContain("height: 0.3rem;");
     expect(dotsRule).toContain("animation: k2b-chat-dot-pulse 1s ease-in-out infinite;");

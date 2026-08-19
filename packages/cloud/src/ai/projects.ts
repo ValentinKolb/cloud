@@ -518,26 +518,28 @@ export const aiProjects = {
       if (!project) return null;
       const [knowledgeRows, fileRows, referenceRows] = await Promise.all([
         tx<KnowledgeRow[]>`SELECT * FROM ai.project_knowledge WHERE project_id = ${projectId}::uuid ORDER BY updated_at DESC, id LIMIT 100`,
-        tx<FileRow[]>`SELECT id, short_id, project_id, path, media_type, octet_length(bytes)::int AS size, updated_at FROM ai.project_files WHERE project_id = ${projectId}::uuid ORDER BY updated_at DESC, id`,
+        tx<
+          FileRow[]
+        >`SELECT id, short_id, project_id, path, media_type, octet_length(bytes)::int AS size, updated_at FROM ai.project_files WHERE project_id = ${projectId}::uuid ORDER BY updated_at DESC, id`,
         tx<ReferenceRow[]>`SELECT * FROM ai.project_resource_refs WHERE project_id = ${projectId}::uuid ORDER BY created_at, id LIMIT 500`,
       ]);
       const knowledge = knowledgeRows.map(toKnowledge);
       const files = fileRows.map(toFile);
       const references = referenceRows.map(toReference);
       const lines = [
-      `Project: ${project.name} (${project.shortId}, revision ${project.revision})`,
-      project.description ? `Description: ${project.description}` : null,
-      knowledge.length ? `Knowledge entries:\n${knowledge.map((item) => `- ${item.title} [${item.shortId}]`).join("\n")}` : null,
-      files.length
-        ? `Files (read-only below /project):\n${files
-            .map((file) => `- ${mountAiProjectFilePath(file.path)} (${file.mediaType}, ${file.size} bytes) [${file.shortId}]`)
-            .join("\n")}`
-        : null,
-      references.length
-        ? `Cloud references (metadata only; use authorized app capabilities to read the source):\n${references
-            .map((reference) => `- ${reference.label || reference.ref.id}: ${reference.ref.type}/${reference.ref.id}`)
-            .join("\n")}`
-        : null,
+        `Project: ${project.name} (${project.shortId}, revision ${project.revision})`,
+        project.description ? `Description: ${project.description}` : null,
+        knowledge.length ? `Knowledge entries:\n${knowledge.map((item) => `- ${item.title} [${item.shortId}]`).join("\n")}` : null,
+        files.length
+          ? `Files (read-only below /project):\n${files
+              .map((file) => `- ${mountAiProjectFilePath(file.path)} (${file.mediaType}, ${file.size} bytes) [${file.shortId}]`)
+              .join("\n")}`
+          : null,
+        references.length
+          ? `Cloud references (metadata only; use authorized app capabilities to read the source):\n${references
+              .map((reference) => `- ${reference.label || reference.ref.id}: ${reference.ref.type}/${reference.ref.id}`)
+              .join("\n")}`
+          : null,
       ].filter(Boolean);
       return {
         id: project.shortId,
@@ -709,6 +711,16 @@ export const aiProjects = {
       LIMIT 100
     `;
     return rows.map(toKnowledge);
+  },
+
+  async getKnowledgeByShortId(projectId: string, shortId: string, subject: AccessSubject | null): Promise<AiProjectKnowledge | null> {
+    if (!(await requireProject(projectId, subject, "read"))) return null;
+    const rows = await sql<KnowledgeRow[]>`
+      SELECT * FROM ai.project_knowledge
+      WHERE project_id = ${projectId}::uuid AND short_id = ${shortId}
+      LIMIT 1
+    `;
+    return rows[0] ? toKnowledge(rows[0]) : null;
   },
 
   async createKnowledge(

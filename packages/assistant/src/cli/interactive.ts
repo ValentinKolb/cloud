@@ -8,12 +8,15 @@ import {
   CloudAiCardInputSchema,
   type CloudAiSurveyInput,
   CloudAiSurveyInputSchema,
+  type CloudAiTextEditorInput,
+  CloudAiTextEditorInputSchema,
 } from "@valentinkolb/cloud/ai";
 import { arg, type CloudCliContext, command, flag } from "@valentinkolb/cloud/cli";
 import { deniedLocalBashResult, parseLocalBashInput, runLocalBash } from "./local-bash";
 import { jsonRequest, readApi } from "./shared";
 import { type AssistantTurnStreamResult, streamAssistantTurn } from "./stream";
 import { selectNumberedChoice, terminalInfo, terminalSafeText } from "./terminal";
+import { editTextWithExternalEditor } from "./text-editor";
 import {
   conversationPath,
   readConversationDetail,
@@ -27,6 +30,8 @@ type LineReader = {
   read(prompt: string): Promise<string | null>;
   close(): void;
   onInterrupt(handler: () => void): () => void;
+  pause?(): void;
+  resume?(): void;
 };
 
 type InteractiveOptions = {
@@ -65,6 +70,8 @@ const createLineReader = (): LineReader => {
       });
     },
     close: () => rl.close(),
+    pause: () => rl.pause(),
+    resume: () => rl.resume(),
     onInterrupt(handler) {
       rl.on("SIGINT", handler);
       return () => rl.removeListener("SIGINT", handler);
@@ -177,6 +184,41 @@ export const collectSurveyResult = async (ctx: CloudCliContext, reader: LineRead
   return { submitted: true, answers };
 };
 
+export const collectTextEditorResult = async (
+  ctx: CloudCliContext,
+  reader: LineReader,
+  args: unknown,
+  edit: (input: CloudAiTextEditorInput) => Promise<unknown> = editTextWithExternalEditor,
+): Promise<unknown | null> => {
+  const parsed = CloudAiTextEditorInputSchema.safeParse(args);
+  if (!parsed.success) return null;
+  let input = parsed.data;
+  ctx.print(input.title);
+  if (input.description) ctx.print(input.description);
+  ctx.print();
+  ctx.print(terminalSafeText(input.content));
+  ctx.print();
+
+  while (true) {
+    const answer = await readChoice(reader, "Use this text? [Y/e=edit/c=cancel]: ", ["y", "yes", "e", "edit", "c", "cancel"], "y");
+    if (answer === null || answer === "c" || answer === "cancel") return null;
+    if (answer === "y" || answer === "yes") {
+      return { submitted: true, content: input.content, format: input.format };
+    }
+    try {
+      reader.pause?.();
+      const edited = CloudAiTextEditorInputSchema.pick({ content: true, format: true }).safeParse(await edit(input));
+      if (!edited.success) throw new Error("The editor returned invalid text.");
+      input = { ...input, content: edited.data.content, format: edited.data.format };
+    } catch (error) {
+      ctx.error(error instanceof Error ? error.message : "Could not edit the text.");
+      return null;
+    } finally {
+      reader.resume?.();
+    }
+  }
+};
+
 const submitAction = async (ctx: CloudCliContext, action: AiPendingTurnAction, body: unknown): Promise<void> => {
   await readApi(
     ctx,
@@ -247,6 +289,13 @@ const resolveAttention = async (input: {
         return null;
       }
       await submitAction(input.ctx, action, { type: "tool_result", result: surveyResult });
+    } else if (action.name === "text_editor" || action.name === "cloud_text_editor") {
+      const editorResult = await collectTextEditorResult(input.ctx, input.reader, action.args);
+      if (editorResult === null) {
+        input.ctx.error("The text editor was left pending.");
+        return null;
+      }
+      await submitAction(input.ctx, action, { type: "tool_result", result: editorResult });
     } else {
       input.ctx.error(`Frontend tool ${action.name} needs a result.`);
       input.ctx.error(

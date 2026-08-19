@@ -213,6 +213,7 @@ const subscriptionHref = (mailboxId: string, listKey: string): string | null => 
 const openLink = (href: string): CapabilitySemanticLink => ({ rel: "open", href });
 const editLink = (href: string): CapabilitySemanticLink => ({ rel: "edit", href });
 const statusLink = (href: string): CapabilitySemanticLink => ({ rel: "status", href });
+const mailboxApprovalScope = (mailboxId: string): string => `mailbox:${mailboxId}`;
 const draftMetadata = (mailboxId: string, draftId: string) => ({
   refs: [{ type: "mail.draft" as const, id: draftId }],
   links: [editLink(draftHref(mailboxId, draftId))],
@@ -1614,6 +1615,7 @@ const requireConversationForReview = async (
   return ok({
     subject: reviewSubject(message.subject),
     href: conversationHref(scope.data.shortId, conversationId),
+    mailboxInternalId: scope.data.id,
   });
 };
 
@@ -1671,6 +1673,7 @@ const actionDefinitions = {
               })
             : []),
         ],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.DraftCreateInputSchema>, context: CapabilityExecutionContext) => {
@@ -1765,6 +1768,7 @@ const actionDefinitions = {
           }),
         ],
         links: [editLink(draftHref(input.mailboxId, input.draftId))],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.DraftUpdateInputSchema>, context: CapabilityExecutionContext) => {
@@ -2043,6 +2047,7 @@ const actionDefinitions = {
           { label: "Change", value: changes.join(", ") },
         ],
         links: [openLink(conversation.data.href)],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
@@ -2086,7 +2091,6 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "required",
-    approval: "rememberable",
     review: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.target.conversationId, context);
       if (!conversation.ok) return conversation;
@@ -2180,6 +2184,7 @@ const actionDefinitions = {
           { label: "Remove", value: input.removeTagIds.map((id) => names.get(id) ?? id).join(", ") || "None" },
         ],
         links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.ConversationTagUpdateInputSchema>, context: CapabilityExecutionContext) => {
@@ -2220,34 +2225,40 @@ const actionDefinitions = {
       });
     },
   },
-  "conversation.collaboration.update": {
-    title: "Update collaboration",
-    description: "Assign, snooze, mark done, or reopen a conversation.",
-    input: c.CollaborationUpdateInputSchema,
+  "conversation.assign": {
+    title: "Assign conversation",
+    description: "Assign one conversation to an eligible mailbox member, or clear its assignee.",
+    input: c.ConversationAssignInputSchema,
     data: c.CollaborationDataSchema,
     destructive: true,
     openWorld: false,
     idempotency: "none",
     approval: "rememberable",
-    review: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => {
+    review: async (input: z.output<typeof c.ConversationAssignInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
       if (!conversation.ok) return conversation;
-      const details: NonNullable<CapabilityActionReview["details"]> = [{ label: "Conversation", value: conversation.data.subject }];
-      if (input.assigneeUserId !== undefined) details.push({ label: "Assignee", value: input.assigneeUserId ?? "Unassigned" });
-      if (input.completion !== undefined) details.push({ label: "Next step", value: input.completion === "done" ? "Done" : "Reopen" });
-      if (input.snoozedUntil !== undefined)
-        details.push(
-          input.snoozedUntil
-            ? { label: "Snoozed until", value: input.snoozedUntil, format: "date-time" as const }
-            : { label: "Snoozed until", value: "Not snoozed" },
-        );
+      const assignee = input.assigneeUserId
+        ? await collaboration.listCurrentUsers({
+            mailboxId: conversation.data.mailboxInternalId,
+            userIds: [input.assigneeUserId],
+            minimumPermission: "write",
+            limit: 1,
+          })
+        : [];
+      if (input.assigneeUserId && !assignee[0]) return fail(err.badInput("Assignee must have current write access to this mailbox"));
       return ok({
-        message: `Update collaboration state for ${conversation.data.subject}.`,
-        details,
+        message: input.assigneeUserId
+          ? `Assign ${conversation.data.subject} to ${assignee[0]!.displayName}.`
+          : `Clear the assignee of ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Assignee", value: assignee[0] ? `${assignee[0].displayName} · ${assignee[0].uid}` : "Unassigned" },
+        ],
         links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
-    run: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => {
+    run: async (input: z.output<typeof c.ConversationAssignInputSchema>, context: CapabilityExecutionContext) => {
       const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
       if (!scope.ok) return scope;
       return mapResult(
@@ -2258,9 +2269,83 @@ const actionDefinitions = {
           input: {
             expectedRevision: input.expectedRevision,
             assigneeUserId: input.assigneeUserId,
-            completion: input.completion,
-            snoozedUntil: input.snoozedUntil,
           },
+        }),
+        (item) => ({ ...item, conversationId: input.conversationId }),
+        () => conversationMetadata(input.mailboxId, input.conversationId),
+      );
+    },
+  },
+  "conversation.status.update": {
+    title: "Update conversation status",
+    description: "Mark one conversation done or reopen it.",
+    input: c.ConversationStatusUpdateInputSchema,
+    data: c.CollaborationDataSchema,
+    destructive: true,
+    openWorld: false,
+    idempotency: "none",
+    approval: "rememberable",
+    review: async (input: z.output<typeof c.ConversationStatusUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      return ok({
+        message: `${input.status === "done" ? "Mark" : "Reopen"} ${conversation.data.subject}${input.status === "done" ? " done" : ""}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Status", value: input.status === "done" ? "Done" : "Open" },
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
+      });
+    },
+    run: async (input: z.output<typeof c.ConversationStatusUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
+      if (!scope.ok) return scope;
+      return mapResult(
+        await collaboration.updateConversationCollaboration({
+          context: requestContext(context),
+          mailboxId: scope.data.mailbox.id,
+          conversationId: scope.data.conversationId,
+          input: { expectedRevision: input.expectedRevision, completion: input.status },
+        }),
+        (item) => ({ ...item, conversationId: input.conversationId }),
+        () => conversationMetadata(input.mailboxId, input.conversationId),
+      );
+    },
+  },
+  "conversation.snooze": {
+    title: "Snooze conversation",
+    description: "Set or clear the snooze deadline of one conversation.",
+    input: c.ConversationSnoozeInputSchema,
+    data: c.CollaborationDataSchema,
+    destructive: true,
+    openWorld: false,
+    idempotency: "none",
+    approval: "rememberable",
+    review: async (input: z.output<typeof c.ConversationSnoozeInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      return ok({
+        message: input.snoozedUntil ? `Snooze ${conversation.data.subject}.` : `Clear the snooze deadline of ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          ...(input.snoozedUntil
+            ? [{ label: "Snoozed until", value: input.snoozedUntil, format: "date-time" as const }]
+            : [{ label: "Snoozed until", value: "Not snoozed" }]),
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
+      });
+    },
+    run: async (input: z.output<typeof c.ConversationSnoozeInputSchema>, context: CapabilityExecutionContext) => {
+      const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
+      if (!scope.ok) return scope;
+      return mapResult(
+        await collaboration.updateConversationCollaboration({
+          context: requestContext(context),
+          mailboxId: scope.data.mailbox.id,
+          conversationId: scope.data.conversationId,
+          input: { expectedRevision: input.expectedRevision, snoozedUntil: input.snoozedUntil },
         }),
         (item) => ({ ...item, conversationId: input.conversationId }),
         () => conversationMetadata(input.mailboxId, input.conversationId),
@@ -2286,6 +2371,7 @@ const actionDefinitions = {
           { label: "Due at", value: input.dueAt, format: "date-time" as const },
         ],
         links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.ReminderSetInputSchema>, context: CapabilityExecutionContext) => {
@@ -2317,6 +2403,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.ReminderCancelInputSchema>, context: CapabilityExecutionContext) => {
       const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
       if (!scope.ok) return scope;
@@ -2339,6 +2426,7 @@ const actionDefinitions = {
             : [{ label: "Due at", value: "Unknown" }]),
         ],
         links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.ReminderCancelInputSchema>, context: CapabilityExecutionContext) => {
@@ -2370,6 +2458,24 @@ const actionDefinitions = {
     destructive: false,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
+    review: async (input: z.output<typeof c.CommentCreateInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      return ok({
+        message: `Add an internal comment to ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          ...bodyReviewDetails({
+            body: input.body,
+            label: "Comment",
+            truncatedMessage: "This comment preview is truncated to 10 KB. Review the full comment in Details before approving.",
+          }),
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
+      });
+    },
     run: async (input: z.output<typeof c.CommentCreateInputSchema>, context: CapabilityExecutionContext) => {
       const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
       if (!scope.ok) return scope;
@@ -2424,6 +2530,7 @@ const actionDefinitions = {
           }),
         ],
         links: [{ rel: "open" as const, href: review.data.conversation.href }],
+        approvalScope: mailboxApprovalScope(input.mailboxId),
       });
     },
     run: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => {
@@ -2529,7 +2636,6 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
-    approval: "rememberable",
     review: async (input: z.output<typeof c.TagUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const scope = await resolveMailboxScope(input.mailboxId);
       if (!scope.ok) return scope;

@@ -1,12 +1,12 @@
-import type { AiConversation, AiDraftContentPart } from "./types";
 import { AI_TURN_ATTACHMENT_MAX_ITEMS } from "./limits";
+import type { AiConversation, AiDraftContentPart } from "./types";
 
 export type LaunchAssistantInput = {
   title?: string;
   projectId?: string;
   draft?: { content: Array<Extract<AiDraftContentPart, { type: "text" | "resource" }>> };
   files?: File[];
-  preloadCapabilities?: Array<{ appId: string; kind: "query" | "action"; id: string }>;
+  preloadTools?: Array<{ name: string } | { appId: string; kind: "query" | "action"; id: string }>;
 };
 
 export type AssistantLaunch = {

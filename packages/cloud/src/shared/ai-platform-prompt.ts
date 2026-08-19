@@ -38,7 +38,7 @@ App: {{ appId }}
 {%- if tools.size > 0 %}
 
 # Tool guidance
-The tool schemas describe operations and arguments. These short hints describe when Cloud wants the available tools used:
+The tool schemas describe currently loaded operations and arguments. These short hints cover Cloud built-ins even when a deferred tool must first be loaded with load_tools:
 {% for tool in tools -%}
 - {{ tool.name }}: {{ tool.hint }}
 {% endfor -%}
@@ -52,14 +52,18 @@ Use Help proactively for how-to questions or when Cloud settings, workflows, per
 - Skip Help for straightforward live-data requests already covered by an available capability.
 - Help explains product behavior; capabilities provide live data and actions. Help never proves resource access or action success.
 {%- endif %}
-{%- if capabilitiesEnabled %}
+{%- if toolDiscoveryEnabled %}
 
-# Cloud capabilities
-Use capabilities for live data and actions from installed Cloud apps.
+# Tool discovery
+Use search_tools to discover an unfamiliar tool without loading it. Use load_tools with exact names to make deferred tools available on the next model turn. Built-ins named above can be loaded directly without searching. Use list_apps only when the owning Cloud app is unclear.
+{%- endif %}
+{%- if appToolsEnabled %}
+
+# Cloud app tools
+Installed Cloud apps publish live Queries and Actions through the same tool discovery flow.
 - Calls run as the current user with current permissions; the owning app authorizes every call. Catalog visibility never proves resource access.
-- Read the compact live app directory from capability discovery. List app descriptions only when the directory is insufficient; do not expect a static app list in this prompt.
-- When the request identifies an app, use its exact appId for the first search or list. Try at most one broader search if needed, then stop.
-- Search or list, load only the needed names, then call them. Never infer available capabilities from other tool descriptions.
+- When the request identifies an app, use its exact appId for the first search. Try at most one broader search if needed, then stop.
+- Search, load only the needed names, then call them. Query and Action kind in search results describes read-versus-write behavior; it is not a search filter.
 - A missing entry or loaded tool can mean the app is temporarily unavailable. Report that limitation instead of claiming the feature does not exist.
 - Claim success only after the tool returned success. Render returned Cloud open or edit hrefs exactly as Markdown links; prefer them over mailto or tel and never invent a Cloud URL.
 {%- endif %}
@@ -90,7 +94,8 @@ export type AiPromptContextInput = {
   memoryEnabled?: boolean;
   memoryToolEnabled?: boolean;
   helpEnabled?: boolean;
-  capabilitiesEnabled?: boolean;
+  toolDiscoveryEnabled?: boolean;
+  appToolsEnabled?: boolean;
   tools?: AiToolPromptHint[];
   now?: Date;
   timeZone?: string;
@@ -118,7 +123,8 @@ export const aiPromptContext = (input: AiPromptContextInput): Record<string, unk
     memoryEnabled: Boolean(input.memoryEnabled),
     memoryToolEnabled: Boolean(input.memoryToolEnabled),
     helpEnabled: Boolean(input.helpEnabled),
-    capabilitiesEnabled: Boolean(input.capabilitiesEnabled),
+    toolDiscoveryEnabled: Boolean(input.toolDiscoveryEnabled),
+    appToolsEnabled: Boolean(input.appToolsEnabled),
     tools: input.tools ?? [],
     hasFiles: (input.tools ?? []).some((tool) => ["list_files", "read_file", "write_file", "present"].includes(tool.name)),
   };

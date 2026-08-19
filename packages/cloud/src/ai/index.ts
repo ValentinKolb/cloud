@@ -50,6 +50,11 @@ export {
   CloudAiSurveyInputSchema,
   type CloudAiSurveyOutput,
   CloudAiSurveyOutputSchema,
+  CLOUD_AI_TEXT_EDITOR_MAX_CHARS,
+  type CloudAiTextEditorInput,
+  CloudAiTextEditorInputSchema,
+  type CloudAiTextEditorOutput,
+  CloudAiTextEditorOutputSchema,
 } from "./default-tool-contracts";
 export {
   type AiChatEnrichment,

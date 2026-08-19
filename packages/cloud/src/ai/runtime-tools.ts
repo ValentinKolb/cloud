@@ -1,7 +1,9 @@
 export {
+  CLOUD_AI_DEFERRED_BUILTIN_TOOL_NAMES,
   createCloudAiCardTool,
   createCloudAiLocalBashTool,
   createCloudAiSurveyTool,
+  createCloudAiTextEditorTool,
   createConfiguredDefaultCloudAiTools,
   createDefaultCloudAiTools,
 } from "./default-tools";
@@ -24,9 +26,9 @@ export {
   evaluateAiDate,
   evaluateAiMath,
 } from "./file-tools";
-export { createCloudAiViewImageTool } from "./vision-tool";
 export {
   CloudAiMarkdownToPdfInputSchema,
   CloudAiMarkdownToPdfOutputSchema,
   createCloudAiMarkdownToPdfTool,
 } from "./markdown-pdf-tool";
+export { createCloudAiViewImageTool } from "./vision-tool";

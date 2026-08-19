@@ -104,8 +104,11 @@ When a turn is submitted, Cloud rechecks access and stores an immutable snapshot
 with the Project id, name, revision, instructions, context manifest, and model
 default. Past messages do not change when the current Project changes. Retries
 reuse that turn's snapshot; new turns use the current Project and revision.
-Workers recheck current access before execution. `project_context` and every
-read below the virtual `/project` file mount recheck it before returning data.
+Workers recheck current access before execution. `search_project`,
+`read_project_knowledge`, and every read below the virtual `/project` file mount
+recheck it before returning data. `search_project` returns metadata only;
+knowledge is read with `read_project_knowledge`, documents with `read_file`, and
+images with `view_image`.
 The mount is never writable and does not copy shared bytes into a private chat.
 
 Only Project instructions are instruction-bearing. Knowledge, files, references,

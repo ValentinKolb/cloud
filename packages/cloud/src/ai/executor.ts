@@ -7,7 +7,7 @@ import type { AccessSubject, RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { coreSettings } from "../services/settings/api";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
-import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
+import { createAiToolResolver } from "./capabilities";
 import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
 import { createCloudAiLocalBashTool, createConfiguredDefaultCloudAiTools } from "./default-tools";
@@ -15,7 +15,7 @@ import { aiFileStore } from "./files-store";
 import { aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { type AiUserPrefs, aiActorUser, aiUserPrefs } from "./prefs";
-import { createCloudAiProjectContextTool } from "./project-tool";
+import { createCloudAiReadProjectKnowledgeTool, createCloudAiSearchProjectTool } from "./project-tool";
 import { aiProjects } from "./projects";
 import {
   type AiTurnBlock,
@@ -222,11 +222,13 @@ const rebuildBlocksFromMessages = (
   const indexByCallId = new Map(blocks.map((block, index) => [block.kind === "tool" ? block.callId : `_${index}`, index]));
 
   for (const action of pending) {
-    const at = indexByCallId.get(action.callId);
+    const parentCallId = action.kind === "custom_approval" ? customApprovalParentCallId(action.callId) : undefined;
+    const at = indexByCallId.get(action.callId) ?? (parentCallId ? indexByCallId.get(parentCallId) : undefined);
     const existing = at !== undefined ? blocks[at] : undefined;
     if (existing?.kind === "tool") {
       blocks[at!] = {
         ...existing,
+        callId: action.callId,
         status: action.kind === "client_tool" ? "awaiting_client" : "awaiting_approval",
         approval:
           action.kind === "client_tool" ? undefined : { message: action.message, review: action.review, allowAlways: action.allowAlways },
@@ -260,13 +262,15 @@ type BlockOp = BlockSetOp | BlockDeltaOp;
 
 type ToolBlockPatch = Partial<Extract<AiTurnBlock, { kind: "tool" }>> & { name?: string; clearApproval?: boolean };
 
+const customApprovalParentCallId = (callId: string): string | undefined => /^(.*)-approval-\d+$/.exec(callId)?.[1];
+
 const approvalReviewForCallId = (
   reviews: ReadonlyMap<string, CapabilityActionReview>,
   callId: string,
 ): CapabilityActionReview | undefined => {
   const direct = reviews.get(callId);
   if (direct) return direct;
-  const parentCallId = /^(.*)-approval-\d+$/.exec(callId)?.[1];
+  const parentCallId = customApprovalParentCallId(callId);
   return parentCallId ? reviews.get(parentCallId) : undefined;
 };
 
@@ -302,11 +306,11 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
   /** kind per open Cloud stream block id, for delta create-if-missing. */
   const streamKinds = new Map<string, "text" | "thinking">();
 
-  const setTool = (callId: string, patch: ToolBlockPatch): BlockOp => {
+  const setTool = (callId: string, patch: ToolBlockPatch, displayCallId = callId): BlockOp => {
     const existing = toolBlocks.get(callId);
     const name = patch.name ?? existing?.name ?? "tool";
     const block: Extract<AiTurnBlock, { kind: "tool" }> = {
-      id: toolBlockId(callId),
+      id: toolBlockId(displayCallId),
       kind: "tool",
       callId,
       name,
@@ -359,17 +363,22 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
       case "tool_execution_start":
         return [setTool(event.callId, { name: event.name, args: event.args, status: "running" })];
       case "tool_action_request":
+        const displayCallId = event.kind === "custom_approval" ? (customApprovalParentCallId(event.callId) ?? event.callId) : event.callId;
         return [
-          setTool(event.callId, {
-            name: event.name,
-            args: event.args,
-            status: event.kind === "client_tool" ? "awaiting_client" : "awaiting_approval",
-            approval:
-              event.kind === "client_tool"
-                ? undefined
-                : { message: event.message, review: approvalReviewForCallId(approvalReviews, event.callId), allowAlways: false },
-            frontendMode: event.kind === "client_tool" ? (frontendModes.get(event.name) ?? "client") : undefined,
-          }),
+          setTool(
+            event.callId,
+            {
+              name: event.name,
+              args: event.args,
+              status: event.kind === "client_tool" ? "awaiting_client" : "awaiting_approval",
+              approval:
+                event.kind === "client_tool"
+                  ? undefined
+                  : { message: event.message, review: approvalReviewForCallId(approvalReviews, event.callId), allowAlways: false },
+              frontendMode: event.kind === "client_tool" ? (frontendModes.get(event.name) ?? "client") : undefined,
+            },
+            displayCallId,
+          ),
         ];
       case "tool_execution_end":
         return [
@@ -538,13 +547,14 @@ export class AiTurnExecutor {
     const { settings, resolved } = validated;
 
     const defaultToolSource = config.toolSource?.kind === "default" ? config.toolSource : null;
-    const helpActor =
+    const toolActor =
       defaultToolSource && resolved.profile.capabilities.includes("tools") && material.actor?.kind === "user" ? material.actor : null;
-    const helpEnabled = helpActor !== null;
-    const capabilitiesEnabled = helpActor !== null && defaultToolSource?.capabilities === true;
+    const helpEnabled = toolActor !== null;
+    const toolDiscoveryEnabled = toolActor !== null;
+    const appToolsEnabled = toolActor !== null && defaultToolSource?.appTools === true;
     let capabilityAuthority: Awaited<ReturnType<typeof resolveAiCapabilityActor>> | null = null;
     try {
-      capabilityAuthority = capabilitiesEnabled
+      capabilityAuthority = appToolsEnabled
         ? await resolveAiCapabilityActor({ conversationId, persistedActor: material.actor, store: aiConversations })
         : null;
     } catch (error) {
@@ -594,13 +604,16 @@ export class AiTurnExecutor {
       ...material.tools,
       ...(memoryActive ? [createCloudAiMemoryTool(memoryQueryFromInput(config.input))] : []),
       ...(config.project && resolvedProjectId && projectSubject
-        ? [createCloudAiProjectContextTool(resolvedProjectId, projectSubject)]
+        ? [
+            createCloudAiSearchProjectTool(resolvedProjectId, projectSubject),
+            createCloudAiReadProjectKnowledgeTool(resolvedProjectId, projectSubject),
+          ]
         : []),
     ];
     const toolsSupported = resolved.profile.capabilities.includes("tools");
     const activeTools = toolsSupported ? runtimeTools : [];
     const memoryToolEnabled = activeTools.some((tool) => tool.def.name === "memory");
-    const projectToolEnabled = activeTools.some((tool) => tool.def.name === "project_context");
+    const projectToolEnabled = activeTools.some((tool) => tool.def.name === "search_project");
 
     if (config.project?.references.length) {
       await indexConversationResources({
@@ -677,14 +690,14 @@ export class AiTurnExecutor {
 
     const appliedSteers: AiTurnSteer[] = [];
 
-    const tools = capabilityAuthority
-      ? createAiCapabilityToolResolver({
+    const tools = toolActor
+      ? createAiToolResolver({
           conversationId,
-          actor: capabilityAuthority.actor,
+          actor: capabilityAuthority?.actor ?? toolActor,
           staticTools: activeTools,
           runtimeContext: dynamicToolRuntimeContext,
           store: aiConversations,
-          listRegistry: listCapabilities,
+          ...(capabilityAuthority ? { listRegistry: listCapabilities } : {}),
           onCapabilityRegistryError: (error) =>
             log.warn("AI Capability registry unavailable; continuing without app capabilities", {
               error: error instanceof Error ? error.message : String(error),
@@ -694,39 +707,50 @@ export class AiTurnExecutor {
             log.warn("AI Help registry unavailable; continuing without Help documents", {
               error: error instanceof Error ? error.message : String(error),
             }),
-          maxLoadedCapabilities: resolved.profile.maxLoadedCapabilities,
-          review: (entry, args, context) =>
-            reviewAiCapability({
-              conversationId,
-              authority: capabilityAuthority!,
-              entry,
-              args,
-              context,
-            }),
-          onReview: (callId, review) => capabilityActionReviews.set(callId, review),
-          execute: async (entry, args, context) => {
-            try {
-              const result = await executeAiCapability({
-                conversationId,
-                turnId,
-                authority: capabilityAuthority!,
-                entry,
-                args,
-                context,
-              });
-              const resources = collectConversationResourceObservations(args, result);
-              if (resources.length) {
-                await indexConversationResources({ conversationId, turnId, callId: context.callId, resources });
+          maxLoadedTools: resolved.profile.maxLoadedTools,
+          ...(capabilityAuthority
+            ? {
+                review: (entry, args, context) =>
+                  reviewAiCapability({
+                    conversationId,
+                    authority: capabilityAuthority!,
+                    entry,
+                    args,
+                    context,
+                  }),
               }
-              return result;
-            } catch (error) {
-              const resources = collectConversationResourceObservations(args);
-              if (resources.length) {
-                await indexConversationResources({ conversationId, turnId, callId: context.callId, resources });
-              }
-              throw error;
-            }
+            : {}),
+          onReview: (callId, review) => {
+            capabilityActionReviews.set(callId, review);
+            if (review.approvalScope) rememberableCapabilityApprovals.set(callId, review.approvalScope);
           },
+          ...(capabilityAuthority
+            ? {
+                execute: async (entry, args, context) => {
+                  try {
+                    const result = await executeAiCapability({
+                      conversationId,
+                      turnId,
+                      authority: capabilityAuthority!,
+                      entry,
+                      args,
+                      context,
+                    });
+                    const resources = collectConversationResourceObservations(args, result);
+                    if (resources.length) {
+                      await indexConversationResources({ conversationId, turnId, callId: context.callId, resources });
+                    }
+                    return result;
+                  } catch (error) {
+                    const resources = collectConversationResourceObservations(args);
+                    if (resources.length) {
+                      await indexConversationResources({ conversationId, turnId, callId: context.callId, resources });
+                    }
+                    throw error;
+                  }
+                },
+              }
+            : {}),
           onPrepared: ({ prepared: snapshot, presentations, rememberableApprovals }) => {
             prepared.approvalPolicies.clear();
             prepared.frontendModes.clear();
@@ -740,19 +764,7 @@ export class AiTurnExecutor {
             pipeline.setPresentations(toolPresentations);
           },
         })
-      : helpActor
-        ? createAiHelpToolResolver({
-            conversationId,
-            actor: helpActor,
-            staticTools: activeTools,
-            runtimeContext: dynamicToolRuntimeContext,
-            listRegistry: loadCurrentHelp,
-            onRegistryError: (error) =>
-              log.warn("AI Help registry unavailable; continuing without Help documents", {
-                error: error instanceof Error ? error.message : String(error),
-              }),
-          })
-        : prepared.tools;
+      : prepared.tools;
 
     const systemPrompt = composeAiSystemPrompt({
       globalInstructions: settings.globalInstructions,
@@ -764,7 +776,8 @@ export class AiTurnExecutor {
       memoryEnabled: memoryActive,
       memoryToolEnabled,
       helpEnabled,
-      capabilitiesEnabled,
+      toolDiscoveryEnabled,
+      appToolsEnabled,
       toolHints: aiToolPromptHints(activeTools),
       memory: memory?.text,
       timeZone,
@@ -992,7 +1005,10 @@ export class AiTurnExecutor {
     const approvalPolicy = prepared.approvalPolicies.get(event.name);
     const frontendMode: AiFrontendToolMode | undefined =
       event.kind === "client_tool" ? (prepared.frontendModes.get(event.name) ?? "client") : undefined;
-    const capabilityApprovalScope = event.kind === "custom_approval" ? rememberableCapabilityApprovals.get(event.name) : undefined;
+    const capabilityApprovalScope =
+      event.kind === "custom_approval"
+        ? rememberableCapabilityApprovals.get(customApprovalParentCallId(event.callId) ?? event.callId)
+        : undefined;
     const approvalScope = capabilityApprovalScope ?? aiToolApprovalScope(event.name, approvalPolicy);
     const allowAlways = capabilityApprovalScope !== undefined || aiToolAllowsAlways(approvalPolicy);
 

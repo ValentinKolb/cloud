@@ -721,24 +721,29 @@ export const CollaborationDataSchema = z
     revision: z.number().int().positive(),
   })
   .strict();
-export const CollaborationUpdateInputSchema = z
+const CollaborationMutationBaseShape = {
+  mailboxId: MailboxIdInputSchema,
+  conversationId: ConversationIdInputSchema,
+  expectedRevision: ExpectedRevisionInputSchema,
+};
+export const ConversationAssignInputSchema = z
   .object({
-    mailboxId: MailboxIdInputSchema,
-    conversationId: ConversationIdInputSchema,
-    expectedRevision: ExpectedRevisionInputSchema,
-    assigneeUserId: UuidSchema.nullable().optional().describe("User UUID to assign, or null to unassign."),
-    completion: z.enum(["done", "open"]).optional().describe("Mark the conversation done or reopen it."),
-    snoozedUntil: NullableTimestampSchema.optional().describe("Snooze deadline, or null to clear it."),
+    ...CollaborationMutationBaseShape,
+    assigneeUserId: UuidSchema.nullable().describe("User UUID to assign, or null to unassign."),
   })
-  .strict()
-  .refine(
-    (value) => value.assigneeUserId !== undefined || value.completion !== undefined || value.snoozedUntil !== undefined,
-    "At least one collaboration field is required",
-  )
-  .refine(
-    (value) => value.completion === undefined || value.snoozedUntil === undefined,
-    "Completion and snooze changes must be made separately",
-  );
+  .strict();
+export const ConversationStatusUpdateInputSchema = z
+  .object({
+    ...CollaborationMutationBaseShape,
+    status: z.enum(["done", "open"]).describe("Mark the conversation done or reopen it."),
+  })
+  .strict();
+export const ConversationSnoozeInputSchema = z
+  .object({
+    ...CollaborationMutationBaseShape,
+    snoozedUntil: NullableTimestampSchema.describe("Snooze deadline, or null to clear it."),
+  })
+  .strict();
 
 export const ReminderDataSchema = z
   .object({

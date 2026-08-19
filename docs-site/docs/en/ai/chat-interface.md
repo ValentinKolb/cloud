@@ -166,10 +166,16 @@ Keep the Stop action available until the server accepts the abort.
 
 Render tool input and output as data. Do not inject model text as HTML.
 
-Capability calls use the owning application's saved name, icon, and optional
-accent in running, approval, success, and failure states. The saved snapshot
-keeps history readable when an app is temporarily unavailable or later changes
-its registry metadata; ordinary Nessi tools keep the generic tool presentation.
+Compact capability rows use the saved capability title, app icon, and optional
+accent in running, success, and failure states. They stay on one line and omit
+the app name and result summary; the disclosure still contains the complete
+input and response. Expanded generic disclosures show JSON-like payloads as
+structured data previews with at most eight visible rows and an optional raw
+view; plain text and specialized tool results keep their readable renderers.
+Approval prompts additionally show the owning application's saved name. The
+saved snapshot keeps history readable when an app is
+temporarily unavailable or later changes its registry metadata; ordinary Nessi
+tools keep the generic tool presentation.
 
 Generic tool rows and disclosures use `Chat.Activity` from `@k2b/ui`. Cloud
 only supplies protocol-derived labels and specialized bodies such as web search
@@ -201,9 +207,20 @@ generic timeline.
 
 The controller claims each call once, runs the handler, and sends the result
 back to the turn. Show interaction tools only when the relevant application
-view is present. After the server accepts an interaction result, keep the
-submitted answers visible and disabled while the assistant continues; never
-flash the empty form again between acceptance and the next stream event.
+view is present. After the server accepts an interaction result, collapse the
+form immediately into a waiting row. Keep the submitted answers in its details
+while the assistant continues; never flash the empty form again between
+acceptance and the next stream event. Accepted frontend-tool and approval
+actions must not regress when a stale live event still contains the pending
+block.
+
+The built-in long-form text interaction uses the existing `@k2b/ui`
+`AutocompleteEditor` for plain text and `MarkdownEditor` for Markdown. Its
+unsubmitted value is deliberately component-local: reload may discard edits
+and restore the model's original draft. Do not add a second draft persistence
+layer to the chat controller. Show the submitted source in a bounded disclosure
+without treating the editor submission as authorization for a later domain
+write.
 
 Server tools remain the default for domain access.
 

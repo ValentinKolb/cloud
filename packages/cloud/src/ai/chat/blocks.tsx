@@ -1,6 +1,6 @@
 import { dates } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, Chat, isStructuredDataValue, SplitButton, StructuredDataPreview } from "@k2b/ui";
+import { Button, ButtonLink, Chat, isStructuredDataValue, SplitButton, StructuredDataPreview } from "@k2b/ui";
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import type { CapabilityActionReview } from "../../contracts/capabilities";
 import { markdown } from "../../shared";
@@ -15,12 +15,12 @@ import {
   isCardToolName,
   isRecord,
   isSurveyToolName,
+  isTextEditorToolName,
   jsonPreview,
   memoryToolPresentation,
-  toolBlockSummary,
 } from "./message-utils";
 import { AssistantMarkdownBlock } from "./primitives";
-import { CloudCardBlock, CloudSurveyBlock, CloudSurveyResultBlock } from "./visual-tools";
+import { CloudCardBlock, CloudSurveyBlock, CloudSurveyResultBlock, CloudTextEditorBlock, CloudTextEditorResultBlock } from "./visual-tools";
 import { WebExtractToolBlock, WebSearchToolBlock } from "./web-tools";
 
 type ToolBlock = Extract<AiTurnBlock, { kind: "tool" }>;
@@ -100,13 +100,29 @@ function CompactionBlockView(props: { block: Extract<AiTurnBlock, { kind: "compa
   );
 }
 
-function ToolDetailSection(props: { title: string; children: JSX.Element }) {
+function ToolTextDetail(props: { children: JSX.Element }) {
+  return (
+    <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100 p-2 text-[11px] leading-4 text-primary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
+      {props.children}
+    </pre>
+  );
+}
+
+function ToolDetail(props: { title: string; toolName: string; value: unknown }) {
+  const structured = () =>
+    props.toolName !== "web_search" &&
+    props.toolName !== "web_extract" &&
+    typeof props.value !== "string" &&
+    isStructuredDataValue(props.value)
+      ? { data: props.value }
+      : null;
+
   return (
     <div class="min-w-0">
       <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">{props.title}</p>
-      <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100 p-2 text-[11px] leading-4 text-primary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
-        {props.children}
-      </pre>
+      <Show when={structured()} fallback={<ToolTextDetail>{formatToolDetailText(props.toolName, props.value)}</ToolTextDetail>}>
+        {(value) => <StructuredDataPreview data={value().data} maxRows={8} class="w-full" />}
+      </Show>
     </div>
   );
 }
@@ -120,24 +136,19 @@ function ToolResultDisclosure(props: {
   icon?: string;
   accent?: string;
   labelOnError?: string;
-  descriptionPrefix?: string;
 }) {
-  const summary = () => toolBlockSummary(props.result);
-  const description = () =>
-    [props.descriptionPrefix, props.isError ? "error" : undefined, summary() || undefined].filter(Boolean).join(" · ") || undefined;
   return (
     <Chat.Activity
       icon={props.icon ?? (props.isError ? "ti ti-alert-circle" : aiToolIcon(props.toolName))}
       label={props.isError ? (props.labelOnError ?? "Show tool error") : props.name}
-      description={description()}
       tone={props.isError ? "danger" : "neutral"}
       accent={props.accent}
     >
-      <div class="flex max-w-xl flex-col gap-2">
+      <div class="ml-6 flex max-w-xl flex-col gap-2">
         <Show when={props.args !== undefined}>
-          <ToolDetailSection title="Input">{formatToolDetailText(props.toolName, props.args) || jsonPreview(props.args)}</ToolDetailSection>
+          <ToolDetail title="Input" toolName={props.toolName} value={props.args} />
         </Show>
-        <ToolDetailSection title="Result">{formatToolDetailText(props.toolName, props.result)}</ToolDetailSection>
+        <ToolDetail title="Response" toolName={props.toolName} value={props.result} />
       </div>
     </Chat.Activity>
   );
@@ -186,7 +197,13 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
   const blockReviewDetails = () => (props.block.approval?.review?.details ?? []).filter((detail) => detail.display === "block");
   const reviewLinks = () => props.block.approval?.review?.links ?? [];
   const reviewLinkTitle = (rel: "open" | "edit" | "status" | "preview" | "download") =>
-    ({ open: "Open", edit: "Edit", status: "View status", preview: "Preview", download: "Download" })[rel];
+    ({
+      open: `Open in ${ownerName()}`,
+      edit: `Edit in ${ownerName()}`,
+      status: `View status in ${ownerName()}`,
+      preview: "Preview",
+      download: "Download",
+    })[rel];
   const detailData = () => (isStructuredDataValue(props.block.args) ? props.block.args : undefined);
   const appAccent = () => props.block.presentation?.appAccent;
   const detailsId = `approval-details-${props.block.callId}`;
@@ -234,7 +251,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
             <div class="mt-4 flex flex-col gap-4 text-xs leading-5 text-secondary">
               <p class="whitespace-pre-wrap">{description()}</p>
               <Show when={inlineReviewDetails().length > 0}>
-                <dl class="grid gap-x-5 gap-y-1.5 border-y border-[var(--k2b-border)] py-3 sm:grid-cols-[max-content_minmax(0,1fr)]">
+                <dl class="grid gap-x-5 gap-y-1.5 border-t border-[var(--k2b-border)] pt-3 sm:grid-cols-[max-content_minmax(0,1fr)]">
                   <For each={inlineReviewDetails()}>
                     {(detail) => (
                       <>
@@ -262,24 +279,24 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                   </section>
                 )}
               </For>
-              <Show when={reviewLinks().length > 0}>
-                <nav class="flex flex-wrap gap-x-3 gap-y-1" aria-label={`${title()} links`}>
-                  <For each={reviewLinks()}>
-                    {(link) => (
-                      <a class="font-medium text-link underline-offset-2 hover:underline" href={link.href}>
-                        {link.title ?? reviewLinkTitle(link.rel)}
-                      </a>
-                    )}
-                  </For>
-                </nav>
-              </Show>
             </div>
           </Show>
         </div>
         <footer
-          class="flex min-h-12 items-center gap-3 border-t border-[var(--k2b-border)] bg-[var(--k2b-surface-subtle)] px-4 py-2.5"
+          class="flex min-h-12 flex-wrap items-center gap-2 border-t border-[var(--k2b-border)] bg-[var(--k2b-surface-subtle)] px-4 py-2.5"
           data-ai-approval-footer
         >
+          <Show when={reviewLinks().length > 0}>
+            <nav class="flex flex-wrap gap-1" aria-label={`${title()} links`}>
+              <For each={reviewLinks()}>
+                {(link) => (
+                  <ButtonLink href={link.href} size="xs" variant="ghost">
+                    {link.title ?? reviewLinkTitle(link.rel)}
+                  </ButtonLink>
+                )}
+              </For>
+            </nav>
+          </Show>
           <Show when={approval.error()}>
             <p class="text-xs text-red-700 dark:text-red-300">Could not submit. Try again.</p>
           </Show>
@@ -368,8 +385,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
 
 function CapabilityToolView(props: { block: ToolBlock }) {
   const presentation = () => props.block.presentation!;
-  const label = () => `${presentation().appName}: ${presentation().title}`;
-  const kind = () => (presentation().capabilityKind === "query" ? "Query" : "Action");
+  const label = () => presentation().title;
   return (
     <Show
       when={props.block.status !== "running"}
@@ -377,7 +393,6 @@ function CapabilityToolView(props: { block: ToolBlock }) {
         <Chat.Activity
           icon={aiToolIcon(props.block.name, presentation().appIcon)}
           label={label()}
-          description={kind()}
           tone="ai"
           accent={presentation().appAccent}
           busy
@@ -389,7 +404,6 @@ function CapabilityToolView(props: { block: ToolBlock }) {
         labelOnError={label()}
         icon={aiToolIcon(props.block.name, presentation().appIcon)}
         accent={presentation().appAccent}
-        descriptionPrefix={kind()}
         toolName={props.block.name}
         args={props.block.args}
         result={props.block.result}
@@ -399,7 +413,7 @@ function CapabilityToolView(props: { block: ToolBlock }) {
   );
 }
 
-function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
+function SurveyToolView(props: { turnId: string; block: ToolBlock; active?: boolean }) {
   const actions = useAiChatActions();
   const request = () => ({ turnId: props.turnId, callId: props.block.callId, name: props.block.name });
   const submit = actions.onFrontendToolResult;
@@ -415,7 +429,50 @@ function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
           onSubmit={submit ? (result) => submit(request(), result) : undefined}
         />
       </Match>
-      <Match when={submittedResult()}>{(result) => <CloudSurveyResultBlock args={props.block.args} result={result()} />}</Match>
+      <Match when={submittedResult()}>
+        {(result) => <CloudSurveyResultBlock args={props.block.args} result={result()} continuing={props.active} />}
+      </Match>
+    </Switch>
+  );
+}
+
+function TextEditorToolView(props: { turnId: string; block: ToolBlock; active?: boolean }) {
+  const actions = useAiChatActions();
+  const request = () => ({ turnId: props.turnId, callId: props.block.callId, name: props.block.name });
+  const submit = actions.onFrontendToolResult;
+  const submittedResult = () =>
+    props.block.status === "completed" &&
+    isRecord(props.block.result) &&
+    props.block.result.submitted === true &&
+    typeof props.block.result.content === "string"
+      ? props.block.result
+      : null;
+  return (
+    <Switch
+      fallback={
+        <ToolResultDisclosure
+          name="text editor"
+          toolName={props.block.name}
+          args={props.block.args}
+          result={props.block.result}
+          isError={Boolean(props.block.isError)}
+        />
+      }
+    >
+      <Match when={props.block.status === "running"}>
+        <Chat.Activity label="Preparing text editor" icon="ti ti-edit" tone="ai" busy />
+      </Match>
+      <Match when={props.block.status === "awaiting_client"}>
+        <CloudTextEditorBlock
+          args={props.block.args}
+          disabled={!submit || actions.actionDisabled?.()}
+          disabledLabel={actions.actionDisabled?.() ? "Stopping response." : undefined}
+          onSubmit={submit ? (result) => submit(request(), result) : undefined}
+        />
+      </Match>
+      <Match when={submittedResult()}>
+        {(result) => <CloudTextEditorResultBlock args={props.block.args} result={result()} continuing={props.active} />}
+      </Match>
     </Switch>
   );
 }
@@ -449,7 +506,7 @@ function MemoryToolView(props: { block: ToolBlock }) {
   );
 }
 
-function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
+function ToolBlockView(props: { turnId: string; block: ToolBlock; active?: boolean }) {
   const status = () => props.block.status;
   return (
     <Switch
@@ -485,7 +542,10 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
         <CloudCardBlock args={props.block.args} />
       </Match>
       <Match when={isSurveyToolName(props.block.name)}>
-        <SurveyToolView turnId={props.turnId} block={props.block} />
+        <SurveyToolView turnId={props.turnId} block={props.block} active={props.active} />
+      </Match>
+      <Match when={isTextEditorToolName(props.block.name)}>
+        <TextEditorToolView turnId={props.turnId} block={props.block} active={props.active} />
       </Match>
       <Match when={status() === "running" || status() === "awaiting_client"}>
         <Chat.Activity label={displayToolName(props.block.name)} icon={aiToolIcon(props.block.name)} busy />
@@ -495,7 +555,7 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
 }
 
 /** Render one unified turn block. Shared by persisted assistant groups and the live turn. */
-export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; streaming?: boolean }) {
+export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; streaming?: boolean; active?: boolean }) {
   // block.kind is immutable for a given block id, so this switch may run once.
   const block = props.block;
   switch (block.kind) {
@@ -508,19 +568,30 @@ export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; str
     case "steer_applied":
       return <Chat.Activity label="Conversation steered" icon="ti ti-route" tone="ai" />;
     case "tool":
-      return <ToolBlockView turnId={props.turnId} block={block} />;
+      return <ToolBlockView turnId={props.turnId} block={block} active={props.active} />;
     case "compaction":
       return <CompactionBlockView block={block} />;
   }
 }
 
-export function AiTurnBlockList(props: { blocks: AiTurnBlock[]; turnId: string; streaming?: boolean; compact?: boolean }) {
+export function AiTurnBlockList(props: {
+  blocks: AiTurnBlock[];
+  turnId: string;
+  streaming?: boolean;
+  compact?: boolean;
+  active?: boolean;
+}) {
   const visible = () => props.blocks.filter(isRenderableTurnBlock);
   return (
     <div class={`flex flex-col ${props.compact ? "gap-1" : "gap-2"}`}>
       <For each={visible()}>
         {(block, index) => (
-          <AiTurnBlockView block={block} turnId={props.turnId} streaming={props.streaming && index() === visible().length - 1} />
+          <AiTurnBlockView
+            block={block}
+            turnId={props.turnId}
+            streaming={props.streaming && index() === visible().length - 1}
+            active={props.active}
+          />
         )}
       </For>
     </div>

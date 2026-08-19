@@ -1,6 +1,7 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, Slider } from "@k2b/ui";
+import { AutocompleteEditor, Button, MarkdownEditor, Slider } from "@k2b/ui";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
+import { CLOUD_AI_TEXT_EDITOR_MAX_CHARS } from "../default-tool-contracts";
 import { isRecord, jsonPreview } from "./message-utils";
 
 const toneClass = (tone: unknown) => {
@@ -268,7 +269,7 @@ const surveyAnswerLabel = (question: Record<string, unknown> | null, value: unkn
   return optionLabel(value);
 };
 
-export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown }) {
+export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown; continuing?: boolean }) {
   const survey = () => (isRecord(props.args) ? props.args : null);
   const result = () => (isRecord(props.result) ? props.result : null);
   const answers = () => (isRecord(result()?.answers) ? (result()!.answers as Record<string, unknown>) : {});
@@ -294,7 +295,9 @@ export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown 
       <summary class="inline-flex min-h-7 max-w-full cursor-pointer list-none items-center gap-1.5 py-1 leading-none text-dimmed transition-colors hover:text-primary">
         <i class="ti ti-forms shrink-0 text-base leading-none" aria-hidden="true" />
         <span class="shrink-0 font-medium">survey</span>
-        <span class="min-w-0 truncate">{String(survey()?.title ?? "Survey")} · submitted</span>
+        <span class="min-w-0 truncate">
+          {String(survey()?.title ?? "Survey")} · {props.continuing ? "waiting" : "submitted"}
+        </span>
         <i
           class="ti ti-chevron-right shrink-0 text-base leading-none opacity-60 transition-transform group-open:rotate-90"
           aria-hidden="true"
@@ -313,6 +316,134 @@ export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown 
             </For>
           </dl>
         </Show>
+      </div>
+    </details>
+  );
+}
+
+export function CloudTextEditorBlock(props: {
+  args: unknown;
+  disabled?: boolean;
+  disabledLabel?: string;
+  onSubmit?: (result: unknown) => void | Promise<void>;
+}) {
+  const editor = () => (isRecord(props.args) ? props.args : null);
+  const format = () => (editor()?.format === "markdown" ? "markdown" : "plain");
+  const initialContent = () => (typeof editor()?.content === "string" ? String(editor()!.content) : "");
+  const [content, setContent] = createSignal(initialContent());
+  const [error, setError] = createSignal<string | null>(null);
+  const [submitted, setSubmitted] = createSignal(false);
+  const submission = mutation.create<void, unknown>({
+    mutation: async (result) => {
+      if (!props.onSubmit) throw new Error("Text submission is unavailable.");
+      await props.onSubmit(result);
+    },
+    onSuccess: () => setSubmitted(true),
+    onError: (submissionError) => setError(submissionError.message || "Could not submit the text. Try again."),
+  });
+  const disabled = () => Boolean(props.disabled || submitted() || submission.loading() || !props.onSubmit);
+  const submit = async () => {
+    setError(null);
+    if (!submission.loading()) await submission.mutate({ submitted: true, content: content(), format: format() });
+  };
+
+  return (
+    <div class="w-full min-w-0 overflow-hidden rounded-xl border border-[var(--k2b-border)] bg-[var(--k2b-surface)]">
+      <div class="p-4">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--k2b-ai-accent)_10%,var(--k2b-surface))] text-base text-[var(--k2b-ai-accent)]">
+            <i class="ti ti-edit" aria-hidden="true" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-semibold text-primary">{String(editor()?.title ?? "Review text")}</p>
+            <p class="text-xs text-dimmed">{format() === "markdown" ? "Markdown" : "Plain text"}</p>
+          </div>
+        </div>
+        <Show when={typeof editor()?.description === "string"}>
+          <p class="mt-4 text-xs leading-5 text-secondary">{String(editor()!.description)}</p>
+        </Show>
+        <div class="mt-4 min-h-64">
+          <Show
+            when={format() === "markdown"}
+            fallback={
+              <AutocompleteEditor
+                value={content}
+                onValueChange={setContent}
+                lines={14}
+                maxLength={CLOUD_AI_TEXT_EDITOR_MAX_CHARS}
+                aria-label="Editable text"
+                spellcheck
+                disabled={disabled()}
+                fill
+              />
+            }
+          >
+            <MarkdownEditor
+              value={content}
+              onValueChange={setContent}
+              lines={14}
+              maxLength={CLOUD_AI_TEXT_EDITOR_MAX_CHARS}
+              aria-label="Editable Markdown"
+              spellcheck
+              disabled={disabled()}
+              showStats={false}
+              fill
+            />
+          </Show>
+        </div>
+        <Show when={error()}>
+          <p class="mt-2 text-xs text-red-600 dark:text-red-300" role="alert">
+            {error()}
+          </p>
+        </Show>
+      </div>
+      <footer class="flex min-h-12 items-center gap-3 border-t border-[var(--k2b-border)] bg-[var(--k2b-surface-subtle)] px-4 py-2.5">
+        <span class="text-xs tabular-nums text-dimmed">
+          {content().length.toLocaleString()} / {CLOUD_AI_TEXT_EDITOR_MAX_CHARS.toLocaleString()}
+        </span>
+        <Show
+          when={!props.disabled && !submitted() && props.onSubmit}
+          fallback={<p class="ml-auto text-xs text-dimmed">{props.disabledLabel ?? "Waiting for the assistant to continue."}</p>}
+        >
+          <Button
+            variant="ai"
+            size="sm"
+            class="ml-auto"
+            loading={submission.loading()}
+            loadingLabel="Submitting"
+            onClick={() => void submit()}
+          >
+            {String(editor()?.submitLabel ?? "Continue")}
+          </Button>
+        </Show>
+      </footer>
+    </div>
+  );
+}
+
+export function CloudTextEditorResultBlock(props: { args?: unknown; result: unknown; continuing?: boolean }) {
+  const editor = () => (isRecord(props.args) ? props.args : null);
+  const result = () => (isRecord(props.result) ? props.result : null);
+  const content = () => (typeof result()?.content === "string" ? String(result()!.content) : "");
+  const format = () => (result()?.format === "markdown" ? "Markdown" : "Plain text");
+  return (
+    <details class="group min-w-0 max-w-[min(46rem,100%)] text-xs">
+      <summary class="inline-flex min-h-7 max-w-full cursor-pointer list-none items-center gap-1.5 py-1 leading-none text-dimmed transition-colors hover:text-primary">
+        <i class="ti ti-edit shrink-0 text-base leading-none" aria-hidden="true" />
+        <span class="shrink-0 font-medium">text editor</span>
+        <span class="min-w-0 truncate">
+          {String(editor()?.title ?? "Review text")} · {props.continuing ? "waiting" : "submitted"}
+        </span>
+        <i
+          class="ti ti-chevron-right shrink-0 text-base leading-none opacity-60 transition-transform group-open:rotate-90"
+          aria-hidden="true"
+        />
+      </summary>
+      <div class="mt-1 max-w-3xl rounded-md bg-zinc-100/70 px-2.5 py-2 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
+        <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-dimmed">{format()}</p>
+        <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-5 text-primary">
+          {content() || "Empty text submitted."}
+        </pre>
       </div>
     </details>
   );

@@ -12,7 +12,8 @@ type AssistantResourcePart = Extract<NonNullable<LaunchAssistantInput["draft"]>[
 
 type ResolvedContacts = Awaited<ReturnType<typeof resolveContacts>>;
 
-const mailCapabilities: NonNullable<LaunchAssistantInput["preloadCapabilities"]> = [
+const mailTools: NonNullable<LaunchAssistantInput["preloadTools"]> = [
+  { name: "text_editor" },
   { appId: "mail", kind: "query", id: "draft.read" },
   { appId: "mail", kind: "action", id: "draft.update" },
   { appId: "mail", kind: "action", id: "draft.send" },
@@ -20,7 +21,7 @@ const mailCapabilities: NonNullable<LaunchAssistantInput["preloadCapabilities"]>
   { appId: "mail", kind: "query", id: "conversation.related" },
 ];
 
-const contactCapability: NonNullable<LaunchAssistantInput["preloadCapabilities"]>[number] = {
+const contactCapability: NonNullable<LaunchAssistantInput["preloadTools"]>[number] = {
   appId: "contacts",
   kind: "query",
   id: "contact.resolve",
@@ -113,6 +114,6 @@ export const launchMailDraftAssistant = async (input: {
         ...contactResources,
       ],
     },
-    preloadCapabilities: [...mailCapabilities, ...(contactsAvailable ? [contactCapability] : [])],
+    preloadTools: [...mailTools, ...(contactsAvailable ? [contactCapability] : [])],
   });
 };

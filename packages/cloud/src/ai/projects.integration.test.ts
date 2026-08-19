@@ -258,7 +258,8 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
       await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${memberId}::uuid, ${group!.id}::uuid)`;
       const project = await aiProjects.create({ subject: creator, name: "Durable" });
       projectId = project.id;
-      await aiProjects.createKnowledge(project.id, creator, { title: "Policy", content: "Keep this." });
+      const knowledge = await aiProjects.createKnowledge(project.id, creator, { title: "Policy", content: "Keep this." });
+      if (!knowledge) throw new Error("Expected Project knowledge");
       await aiProjects.writeFile(project.id, creator, {
         path: "policy.md",
         mediaType: "text/markdown",
@@ -277,6 +278,7 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
 
       expect(await aiProjects.get(project.id, member, "admin")).not.toBeNull();
       expect(await aiProjects.listKnowledge(project.id, member)).toHaveLength(1);
+      expect(await aiProjects.getKnowledgeByShortId(project.id, knowledge.shortId, member)).toMatchObject({ title: "Policy" });
       expect(await aiProjects.listFiles(project.id, member)).toHaveLength(1);
       expect(await aiProjects.listReferences(project.id, member)).toHaveLength(1);
     } finally {

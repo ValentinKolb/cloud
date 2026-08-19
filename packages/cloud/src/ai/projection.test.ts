@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { emptyProjection, reduceProjection, visibleMessages } from "./client/projection";
+import { emptyProjection, reconcileActiveTurnActions, reduceProjection, visibleMessages } from "./client/projection";
 import type { AiStreamSseEvent, AiTurnBlock } from "./protocol";
 import { buildBlocksFromMessages, messageBlockId, toolBlockId } from "./protocol";
 import type { AiConversation, AiStoredMessage } from "./types";
@@ -76,6 +76,52 @@ describe("projection reducer", () => {
     } as AiStreamSseEvent);
 
     expect(reconnected.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+
+  test("a stale same-turn snapshot cannot remove tool calls already observed by the browser", () => {
+    const firstTool: AiTurnBlock = {
+      id: toolBlockId("call-1"),
+      kind: "tool",
+      callId: "call-1",
+      name: "search_tools",
+      status: "completed",
+      result: { tools: [] },
+    };
+    const secondTool: AiTurnBlock = {
+      id: toolBlockId("call-2"),
+      kind: "tool",
+      callId: "call-2",
+      name: "load_tools",
+      status: "running",
+    };
+    const current = {
+      ...emptyProjection(conversation),
+      activeTurn: {
+        turnId: "turn-1",
+        attempt: 1,
+        seq: 8,
+        status: "running" as const,
+        blocks: [firstTool, secondTool],
+        modelProfileId: "m",
+      },
+    };
+    const refreshed = reduceProjection(current, {
+      type: "state",
+      conversation,
+      messages: [],
+      activeTurn: {
+        turnId: "turn-1",
+        attempt: 1,
+        seq: 5,
+        status: "running",
+        blocks: [firstTool],
+        modelProfileId: "m",
+        createdAt: "2026-07-07T00:00:00.000Z",
+      },
+    });
+
+    expect(refreshed.activeTurn?.seq).toBe(8);
+    expect(refreshed.activeTurn?.blocks.map((block) => block.id)).toEqual([firstTool.id, secondTool.id]);
   });
 
   test("state snapshot of a different conversation does not inherit old history", () => {
@@ -276,6 +322,84 @@ describe("projection reducer", () => {
         },
       },
     });
+  });
+
+  test("collapses a persisted custom approval onto its parent tool block", () => {
+    const state = reduceProjection(emptyProjection(conversation), {
+      type: "state",
+      conversation,
+      messages: [],
+      activeTurn: {
+        turnId: "turn-1",
+        attempt: 1,
+        seq: 3,
+        status: "waiting_for_action",
+        modelProfileId: "m",
+        createdAt: "2026-08-19T15:31:30.000Z",
+        blocks: [
+          {
+            id: "tool-call-1",
+            kind: "tool",
+            callId: "call-1",
+            name: "mail__action__conversation_dot_mark",
+            status: "running",
+          },
+          {
+            id: "tool-call-1-approval-0",
+            kind: "tool",
+            callId: "call-1-approval-0",
+            name: "mail__action__conversation_dot_mark",
+            status: "awaiting_approval",
+            approval: { message: "Mark read.", allowAlways: true },
+          },
+        ],
+      },
+    } as AiStreamSseEvent);
+
+    expect(state.activeTurn?.blocks).toHaveLength(1);
+    expect(state.activeTurn?.blocks[0]).toMatchObject({
+      id: "tool-call-1",
+      callId: "call-1-approval-0",
+      status: "awaiting_approval",
+    });
+  });
+
+  test("keeps accepted frontend and approval actions resolved in the active turn", () => {
+    const active = {
+      turnId: "turn-1",
+      attempt: 1,
+      seq: 2,
+      status: "waiting_for_action" as const,
+      blocks: [
+        {
+          id: toolBlockId("survey-call"),
+          kind: "tool" as const,
+          callId: "survey-call",
+          name: "survey",
+          status: "awaiting_client" as const,
+          frontendMode: "client_interaction" as const,
+        },
+        {
+          id: toolBlockId("approval-call"),
+          kind: "tool" as const,
+          callId: "approval-call",
+          name: "send_mail",
+          status: "awaiting_approval" as const,
+          approval: { allowAlways: false },
+        },
+      ],
+      modelProfileId: "model",
+    };
+    const result = { submitted: true, answers: { timing: "tomorrow" } };
+
+    const reconciled = reconcileActiveTurnActions(active, [
+      { callId: "survey-call", resolvedEvent: { type: "tool_result", callId: "survey-call", result } },
+      { callId: "approval-call", resolvedEvent: { type: "approval_response", callId: "approval-call", approved: true } },
+    ]);
+
+    expect(reconciled.status).toBe("running");
+    expect(reconciled.blocks[0]).toMatchObject({ status: "completed", result });
+    expect(reconciled.blocks[1]).toMatchObject({ status: "running", approval: undefined });
   });
 
   test("turn_finished for a different turn is ignored", () => {

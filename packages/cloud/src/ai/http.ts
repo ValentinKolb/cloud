@@ -47,11 +47,16 @@ export const AiCapabilityRefSchema = z.object({
   id: z.string().trim().min(1).max(200),
 });
 
+export const AiToolPreloadSchema = z.union([
+  z.object({ name: z.string().trim().min(1).max(200) }).strict(),
+  AiCapabilityRefSchema.strict(),
+]);
+
 export const AiCreateConversationInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   projectId: z.string().regex(AI_SHORT_ID_PATTERN).optional(),
   draft: AiInitialConversationDraftInputSchema.optional(),
-  preloadCapabilities: z.array(AiCapabilityRefSchema).max(8).optional(),
+  preloadTools: z.array(AiToolPreloadSchema).max(8).optional(),
 });
 
 export const AiSaveConversationDraftInputSchema = AiConversationDraftInputSchema.extend({

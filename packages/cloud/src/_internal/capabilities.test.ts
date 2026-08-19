@@ -72,6 +72,7 @@ const example = () =>
             message: "This item will be renamed.",
             details: [{ label: "New name", value: input.name }],
             links: [{ rel: "open", href: `/app/example/${input.id}` }],
+            approvalScope: `item:${input.id}`,
           }),
         run: async (input) => ok({ data: input, refs: [{ type: "example.item", id: input.id }] }),
       },
@@ -767,6 +768,7 @@ describe("capability v1 compilation", () => {
         message: "This item will be renamed.",
         details: [{ label: "New name", value: "Two" }],
         links: [{ rel: "open", href: "/app/example/one" }],
+        approvalScope: "item:one",
       },
     });
 
@@ -807,6 +809,31 @@ describe("capability v1 compilation", () => {
       ok: false,
       error: { code: "INVALID_APP_RESPONSE", message: "Capability review returned an invalid result", status: 500 },
     });
+  });
+
+  test("fails closed when a rememberable review omits its app-owned scope", async () => {
+    const definitions = example();
+    const compiled = compileCapabilities("example", {
+      ...definitions,
+      actions: {
+        ...definitions.actions,
+        rename: {
+          ...definitions.actions!.rename!,
+          review: async () => ok({ message: "Rename this item." }),
+        },
+      },
+    });
+    const action = compiled.manifest.actions[0]!;
+
+    expect(
+      await reviewCompiledCapability({
+        compiled,
+        localId: "rename",
+        input: { id: "one", name: "Two" },
+        expectedSchemaHash: action.schemaHash,
+        context,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "INVALID_APP_RESPONSE", status: 500 } });
   });
 
   test("rejects malformed provider review failures", async () => {

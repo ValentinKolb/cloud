@@ -135,7 +135,7 @@ type AiModelProfileDraft = {
   contextWindow?: number;
   temperature?: number;
   maxOutputTokens?: number;
-  maxLoadedCapabilities?: number;
+  maxLoadedTools?: number;
   maxToolRounds?: number;
   creditsPerInputToken?: number;
   creditsPerOutputToken?: number;
@@ -798,8 +798,7 @@ const normalizeAiProfile = (value: unknown): AiModelProfileDraft | null => {
       typeof raw.maxOutputTokens === "number" && Number.isInteger(raw.maxOutputTokens) && raw.maxOutputTokens > 0
         ? raw.maxOutputTokens
         : undefined,
-    maxLoadedCapabilities:
-      typeof raw.maxLoadedCapabilities === "number" && Number.isInteger(raw.maxLoadedCapabilities) ? raw.maxLoadedCapabilities : undefined,
+    maxLoadedTools: typeof raw.maxLoadedTools === "number" && Number.isInteger(raw.maxLoadedTools) ? raw.maxLoadedTools : undefined,
     maxToolRounds: typeof raw.maxToolRounds === "number" && Number.isInteger(raw.maxToolRounds) ? raw.maxToolRounds : undefined,
     creditsPerInputToken: typeof raw.creditsPerInputToken === "number" ? raw.creditsPerInputToken : undefined,
     creditsPerOutputToken: typeof raw.creditsPerOutputToken === "number" ? raw.creditsPerOutputToken : undefined,
@@ -1530,10 +1529,8 @@ async function openAiProfileDialog(input: {
       input.profile?.dataBoundary ?? defaultDataBoundary(initialProvider),
     );
     const [contextWindow, setContextWindow] = createSignal<number | null>(input.profile?.contextWindow ?? null);
-    const [maxLoadedCapabilities, setMaxLoadedCapabilities] = createSignal<number | null>(
-      typeof input.profile?.maxLoadedCapabilities === "number" && input.profile.maxLoadedCapabilities > 0
-        ? input.profile.maxLoadedCapabilities
-        : null,
+    const [maxLoadedTools, setMaxLoadedTools] = createSignal<number | null>(
+      typeof input.profile?.maxLoadedTools === "number" && input.profile.maxLoadedTools > 0 ? input.profile.maxLoadedTools : null,
     );
     const [maxToolRounds, setMaxToolRounds] = createSignal<number | null>(
       typeof input.profile?.maxToolRounds === "number" && input.profile.maxToolRounds > 0 ? input.profile.maxToolRounds : null,
@@ -1620,9 +1617,9 @@ async function openAiProfileDialog(input: {
       if (typeof context === "number" && context > 0) nextProfile.contextWindow = context;
       else delete nextProfile.contextWindow;
 
-      const loadedLimit = maxLoadedCapabilities();
-      if (typeof loadedLimit === "number") nextProfile.maxLoadedCapabilities = Math.trunc(loadedLimit);
-      else delete nextProfile.maxLoadedCapabilities;
+      const loadedLimit = maxLoadedTools();
+      if (typeof loadedLimit === "number") nextProfile.maxLoadedTools = Math.trunc(loadedLimit);
+      else delete nextProfile.maxLoadedTools;
 
       const toolRoundLimit = maxToolRounds();
       if (typeof toolRoundLimit === "number") nextProfile.maxToolRounds = Math.trunc(toolRoundLimit);
@@ -1758,10 +1755,10 @@ async function openAiProfileDialog(input: {
               />
 
               <NumberInput
-                label="Loaded capability limit"
-                description="Maximum capability tools retained per conversation. Empty or 0 means unlimited."
-                value={maxLoadedCapabilities}
-                onValueChange={setMaxLoadedCapabilities}
+                label="Loaded tool limit"
+                description="Maximum deferred tools retained per conversation. Empty or 0 means unlimited."
+                value={maxLoadedTools}
+                onValueChange={setMaxLoadedTools}
                 min={0}
                 clearable
                 showSteppers={false}

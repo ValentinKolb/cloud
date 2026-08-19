@@ -547,11 +547,15 @@ suite("AI executor integration", () => {
     }
   });
 
-  test("keeps mounted Project files available when dynamic capabilities reprepare the tools", async () => {
+  test("keeps mounted Project files available when dynamic discovery reprepares the tools", async () => {
     const userId = await insertUser();
     const subject = { type: "user" as const, userId };
     const project = await aiProjects.create({ subject, name: "Project files" });
-    const conversation = await aiConversations.createConversation({ ownerUserId: userId, projectId: project.id });
+    const conversation = await aiConversations.createConversation({
+      ownerUserId: userId,
+      projectId: project.id,
+      preloadTools: ["list_files"],
+    });
     try {
       await aiProjects.writeFile(project.id, subject, {
         path: "guide.md",
@@ -575,7 +579,7 @@ suite("AI executor integration", () => {
           input: "List the Project files.",
           actor: { kind: "user", user: actorUser(userId) },
           project: projectSnapshot,
-          toolSource: { kind: "default", capabilities: true },
+          toolSource: { kind: "default", appTools: true },
         },
         userMessage: userMessage("List the Project files."),
       });
@@ -743,7 +747,7 @@ suite("AI executor integration", () => {
           kind: "chat",
           input: "Remember that I prefer short answers.",
           actor: { kind: "user", user: actorUser(userId) },
-          toolSource: { kind: "default", capabilities: true },
+          toolSource: { kind: "default", appTools: true },
         },
         userMessage: userMessage("Remember that I prefer short answers."),
       });

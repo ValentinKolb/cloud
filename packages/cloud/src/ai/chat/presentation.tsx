@@ -6,7 +6,7 @@ import { type AiAssistantTimelineItem, buildAiMessageTimeline, copyTextFromAssis
 import type { AiConversationTimelineEntry, AiStoredMessage } from "../types";
 import { AiTurnBlockList } from "./blocks";
 import { type AiChatActions, AiChatActionsProvider, createAssistantMessageActions, useAiChatActions } from "./message-actions";
-import { formatWorkedDuration, isCardToolName, isSurveyToolName, textFromMessage } from "./message-utils";
+import { formatWorkedDuration, isCardToolName, isSurveyToolName, isTextEditorToolName, textFromMessage } from "./message-utils";
 import { TurnNavigator } from "./turn-navigator";
 import { activeTimelineSeq } from "./turn-navigator-utils";
 import {
@@ -25,7 +25,8 @@ export type AiChatTimelineSession = {
 export { type AiChatActions, AiChatActionsProvider };
 
 const isShowcaseBlock = (block: AiAssistantTimelineItem["blocks"][number]) =>
-  block.kind === "tool" && (isCardToolName(block.name) || isSurveyToolName(block.name) || block.name === "present");
+  block.kind === "tool" &&
+  (isCardToolName(block.name) || isSurveyToolName(block.name) || isTextEditorToolName(block.name) || block.name === "present");
 
 const isWideBlock = (block: AiAssistantTimelineItem["blocks"][number]) =>
   isShowcaseBlock(block) || (block.kind === "tool" && (block.status === "awaiting_approval" || block.status === "rejected"));
@@ -182,7 +183,12 @@ const activeItems = (turn: AiActiveTurn | null, actions: AiChatActions): ChatTim
       status: turn.status === "running" && index === segments.length - 1 ? "streaming" : "complete",
       class: blocks.some(isWideBlock) ? "ai-chat-message-wide" : undefined,
       content: (
-        <AiTurnBlockList blocks={blocks} turnId={turn.turnId} streaming={turn.status === "running" && index === segments.length - 1} />
+        <AiTurnBlockList
+          blocks={blocks}
+          turnId={turn.turnId}
+          streaming={turn.status === "running" && index === segments.length - 1}
+          active
+        />
       ),
     };
   });

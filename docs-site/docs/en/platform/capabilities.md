@@ -169,6 +169,7 @@ export const inventoryCapabilities = defineCapabilities({
             { label: "New name", value: name },
           ],
           links: [{ rel: "open", href: `/app/inventory/items/${item.id}` }],
+          approvalScope: "inventory",
         });
       },
       run: async ({ itemId, name }, context) => {
@@ -344,6 +345,10 @@ and [AI tools and approvals](/en/docs/ai/tools-and-approvals).
 `approval` is deliberately optional and has one value. Without it, AI Core
 asks for every Action call. `approval: "rememberable"` lets a supporting client
 offer an explicit **Always approve** choice after showing the Action review.
+That review must return an opaque, app-owned `approvalScope`. A remembered
+choice matches the current actor, qualified Action, and exact scope; for
+example, Mail uses one scope per mailbox. Choose the smallest stable domain in
+which repeated calls have the same understandable consequence.
 Cloud rejects this policy on `openWorld` Actions and on Actions without a
 `review`. It does not weaken app-side authorization, input validation, audit,
 or concurrency checks, all of which still run for every invocation.
@@ -404,6 +409,7 @@ type CapabilityActionReview = {
     format?: "date" | "date-time";
   }>;
   links?: CapabilitySemanticLink[];
+  approvalScope?: string;
 };
 ```
 
@@ -412,6 +418,11 @@ should check. Omit `display`, or use `inline`, for concise fields. Use `block`
 for bounded long-form plain text such as a proposed message body. `links`
 reuses the existing root-relative, same-origin semantic links so the person can
 inspect or edit the resource in its owning app.
+
+`approvalScope` is omitted for one-time approvals and required when the Action
+declares `approval: "rememberable"`. It is an opaque identifier interpreted by
+the owning app, not a permission grant or a replacement for current access
+checks in `review` and `run`.
 
 The owning app chooses date semantics without pre-formatting for one locale:
 use `format: "date"` with an exact `YYYY-MM-DD` calendar date or an RFC 3339

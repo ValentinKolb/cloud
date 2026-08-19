@@ -19,7 +19,7 @@ export const migrateCloudAi = async (): Promise<void> => {
       short_id TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT 'New chat',
       description TEXT NOT NULL DEFAULT '',
-      loaded_capabilities TEXT[] NOT NULL DEFAULT '{}',
+      loaded_tools TEXT[] NOT NULL DEFAULT '{}',
       draft_content JSONB NOT NULL DEFAULT '[]'::jsonb,
       draft_revision BIGINT NOT NULL DEFAULT 0,
       draft_updated_at TIMESTAMPTZ,
@@ -64,7 +64,31 @@ export const migrateCloudAi = async (): Promise<void> => {
 
   await sql`ALTER TABLE ai.conversations DROP COLUMN IF EXISTS icon`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
-  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS loaded_capabilities TEXT[] NOT NULL DEFAULT '{}'`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'conversations' AND column_name = 'loaded_capabilities'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'conversations' AND column_name = 'loaded_tools'
+      ) THEN
+        ALTER TABLE ai.conversations RENAME COLUMN loaded_capabilities TO loaded_tools;
+      ELSIF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'conversations' AND column_name = 'loaded_capabilities'
+      ) THEN
+        UPDATE ai.conversations
+        SET loaded_tools = ARRAY(
+          SELECT DISTINCT name
+          FROM unnest(loaded_tools || loaded_capabilities) AS name
+        );
+        ALTER TABLE ai.conversations DROP COLUMN loaded_capabilities;
+      END IF;
+    END $$
+  `.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS loaded_tools TEXT[] NOT NULL DEFAULT '{}'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS draft_content JSONB NOT NULL DEFAULT '[]'::jsonb`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS draft_revision BIGINT NOT NULL DEFAULT 0`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS draft_updated_at TIMESTAMPTZ`.simple();

@@ -45,8 +45,8 @@ export type AiModelProfile = {
   contextWindow?: number;
   temperature?: number;
   maxOutputTokens?: number;
-  /** Maximum capabilities retained per conversation. Missing or <= 0 keeps all loaded capabilities. */
-  maxLoadedCapabilities?: number;
+  /** Maximum deferred tools retained per conversation. Missing or <= 0 keeps all loaded tools. */
+  maxLoadedTools?: number;
   /** Tool-using model rounds per chat turn. Missing or <= 0 is unlimited. */
   maxToolRounds?: number;
   creditsPerInputToken?: number;
@@ -392,7 +392,7 @@ export type AiPendingTurnActionRecord = {
   resolvedEvent: InboundEvent | null;
 };
 
-export type AiTurnToolSource = { kind: "none" } | { kind: "default"; capabilities?: boolean };
+export type AiTurnToolSource = { kind: "none" } | { kind: "default"; appTools?: boolean };
 
 export type AiClientToolId = "local_bash";
 
@@ -547,7 +547,7 @@ export type AiConversationService = {
     description?: string;
     projectId?: string;
     draft?: AiDraftContentPart[];
-    preloadCapabilities?: string[];
+    preloadTools?: string[];
   }): Promise<AiConversation>;
   forkConversation(input: {
     sourceConversationId: string;
@@ -584,11 +584,11 @@ export type AiConversationService = {
     expectedRevision: number;
     content: AiDraftContentPart[];
   }): Promise<{ ok: true; draft: AiConversationDraft } | { ok: false; reason: "not_found" | "conflict" }>;
-  getLoadedCapabilities(input: { conversationId: string }): Promise<string[]>;
-  loadCapabilities(input: {
+  getLoadedTools(input: { conversationId: string }): Promise<string[]>;
+  loadTools(input: {
     conversationId: string;
     names: string[];
-    maxLoadedCapabilities?: number;
+    maxLoadedTools?: number;
   }): Promise<{ loaded: string[]; alreadyLoaded: string[]; evicted: string[] }>;
   indexConversationResources(input: {
     conversationId: string;

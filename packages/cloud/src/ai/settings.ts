@@ -92,7 +92,7 @@ const ModelProfileSchema = z
     contextWindow: z.number().int().positive().optional(),
     temperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().positive().optional(),
-    maxLoadedCapabilities: z.number().int().optional(),
+    maxLoadedTools: z.number().int().optional(),
     maxToolRounds: z.number().int().optional(),
     creditsPerInputToken: z.number().nonnegative().optional(),
     creditsPerOutputToken: z.number().nonnegative().optional(),

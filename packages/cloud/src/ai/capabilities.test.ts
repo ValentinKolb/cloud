@@ -11,17 +11,17 @@ import {
   aiCapabilityToolName,
   buildAiCapabilityAppCatalog,
   buildAiCapabilityCatalog,
-  createAiCapabilityMetaTools,
-  createAiCapabilityToolResolver,
-  createAiHelpToolResolver,
+  buildAiToolCatalog,
   createAiHelpTools,
   createAiResourceReaderTool,
+  createAiToolMetaTools,
+  createAiToolResolver,
   createLoadedAiCapabilityTools,
-  listAiCapabilities,
   listAiCapabilityApps,
   reduceAiCapabilityInputSchema,
-  searchAiCapabilities,
+  searchAiTools,
 } from "./capabilities";
+import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { prepareAiTools } from "./tools";
 
 describe("capability action review details", () => {
@@ -87,7 +87,7 @@ const capabilityApp = (
           openWorld: false,
           idempotency: "none",
           approval: "rememberable",
-          review: async ({ title }) => ok({ message: `Create ${title}.` }),
+          review: async ({ title }) => ok({ message: `Create ${title}.`, approvalScope: "collection:default" }),
           run: async () => ok({ data: { id: "created" } }),
         },
       },
@@ -324,22 +324,26 @@ describe("AI capability catalog", () => {
         },
       ],
     };
-    const resolver = createAiHelpToolResolver({
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
-      listRegistry: async () => {
+      store: {
+        getLoadedTools: async () => [],
+        loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+      },
+      listHelpRegistry: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error("registry unavailable");
         return [help];
       },
-      onRegistryError: (error) => failures.push(error),
+      onHelpRegistryError: (error) => failures.push(error),
     });
 
     const unavailable = await resolver();
-    expect(unavailable.map((tool) => tool.def.name)).toEqual(["search_help", "read_help"]);
+    expect(unavailable.map((tool) => tool.def.name)).toEqual(["search_tools", "load_tools", "list_apps", "search_help", "read_help"]);
     const recovered = await resolver();
-    const search = recovered[0];
+    const search = recovered.find((tool) => tool.def.name === "search_help");
     if (!search || search.kind !== "server") throw new Error("search_help missing");
     const result = await search.execute(
       { query: "open the result", appId: "contacts" },
@@ -364,7 +368,7 @@ describe("AI capability catalog", () => {
     expect(longName).toHaveLength(64);
   });
 
-  test("lists and searches deterministic compact entries with app and kind filters", () => {
+  test("searches deterministic compact entries with an optional app filter", () => {
     const first = capabilityApp("contacts", "Contacts");
     const second = capabilityApp("spaces", "Spaces");
     const catalog = buildAiCapabilityCatalog([second, first, first]);
@@ -375,19 +379,10 @@ describe("AI capability catalog", () => {
       "spaces__action__create",
       "spaces__query__list",
     ]);
-    const page = listAiCapabilities(catalog, { kind: "query", limit: 1 });
-    expect(page.capabilities).toEqual([
-      expect.objectContaining({ name: "contacts__query__list", appId: "contacts", appName: "Contacts", kind: "query" }),
-    ]);
-    expect(page.page).toEqual({ hasMore: true, nextCursor: "contacts__query__list" });
-    expect(listAiCapabilities(catalog, { kind: "query", cursor: page.page.nextCursor }).capabilities).toEqual([
-      expect.objectContaining({ name: "spaces__query__list" }),
-    ]);
-    expect(searchAiCapabilities(catalog, { query: "create", appId: "spaces", kind: "action" }).capabilities).toEqual([
-      expect.objectContaining({ name: "spaces__action__create", title: "Create item" }),
-    ]);
-    expect(JSON.stringify(page)).not.toContain("inputSchema");
-    expect(JSON.stringify(page)).not.toContain("appIcon");
+    const result = searchAiTools(buildAiToolCatalog([], catalog), { query: "create", appId: "spaces" });
+    expect(result.tools).toEqual([expect.objectContaining({ name: "spaces__action__create", title: "Create item" })]);
+    expect(JSON.stringify(result)).not.toContain("inputSchema");
+    expect(JSON.stringify(result)).not.toContain("appIcon");
   });
 
   test("builds and pages a deterministic live app directory", () => {
@@ -414,19 +409,105 @@ describe("AI capability catalog", () => {
     const apps = Array.from({ length: 25 }, (_, index) =>
       capabilityApp(`app-${index}`, `App ${index} ${"long-name ".repeat(20)}`, undefined, `Description ${index}`),
     );
-    const tools = createAiCapabilityMetaTools({
+    const capabilityCatalog = buildAiCapabilityCatalog(apps);
+    const tools = createAiToolMetaTools({
       apps,
-      catalog: buildAiCapabilityCatalog(apps),
+      catalog: buildAiToolCatalog([], capabilityCatalog),
+      eagerNames: new Set(),
       conversationId: "conversation-1",
       store: {
-        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+        loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
       },
     });
-    const description = tools.find((tool) => tool.def.name === "search_capabilities")?.def.description ?? "";
+    const description = tools.find((tool) => tool.def.name === "search_tools")?.def.description ?? "";
 
     expect(description).toContain("Live capability apps:");
     expect(description).toContain("more");
     expect(description.length).toBeLessThan(3_000);
+  });
+
+  test("lists apps as an id-to-description map", async () => {
+    const app = capabilityApp("mail", "Mail", undefined, "Read, search, organize, draft, and send email.");
+    const tools = createAiToolMetaTools({
+      apps: [app],
+      catalog: buildAiToolCatalog([], buildAiCapabilityCatalog([app])),
+      eagerNames: new Set(),
+      conversationId: "conversation-1",
+      store: { loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }) },
+    });
+    const prepared = prepareAiTools({ tools, actor, conversationId: "conversation-1" });
+    const list = prepared.tools.find((tool) => tool.def.name === "list_apps");
+    if (!list || list.kind !== "server") throw new Error("list_apps missing");
+    await expect(
+      list.execute(
+        {},
+        { signal: AbortSignal.timeout(1_000), requestApproval: async () => true, requestClientTool: async <T>() => undefined as T },
+      ),
+    ).resolves.toEqual({ apps: { mail: "Read, search, organize, draft, and send email." } });
+  });
+
+  test("keeps only the eager baseline loaded and discovers deferred built-ins", async () => {
+    const allBuiltIns = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "" });
+    let loaded: string[] = [];
+    const resolver = createAiToolResolver({
+      conversationId: "conversation-1",
+      actor,
+      staticTools: allBuiltIns,
+      store: {
+        getLoadedTools: async () => [...loaded],
+        loadTools: async ({ names }) => {
+          loaded = [...new Set([...loaded, ...names])];
+          return { loaded: names, alreadyLoaded: [], evicted: [] };
+        },
+      },
+      listHelpRegistry: async () => [],
+    });
+
+    const first = await resolver();
+    expect(first.map((tool) => tool.def.name)).toEqual([
+      "search_tools",
+      "load_tools",
+      "list_apps",
+      "read_file",
+      "view_image",
+      "search_help",
+      "read_help",
+    ]);
+    const search = first.find((tool) => tool.def.name === "search_tools");
+    if (!search || search.kind !== "server") throw new Error("search_tools missing");
+    const found = z
+      .object({ tools: z.array(z.object({ name: z.string(), kind: z.string() }).passthrough()) })
+      .parse(
+        await search.execute(
+          { query: "edit a long markdown email" },
+          { signal: AbortSignal.timeout(1_000), requestApproval: async () => true, requestClientTool: async <T>() => undefined as T },
+        ),
+      );
+    expect(found.tools).toContainEqual(expect.objectContaining({ name: "text_editor", kind: "builtin" }));
+
+    const load = first.find((tool) => tool.def.name === "load_tools");
+    if (!load || load.kind !== "server") throw new Error("load_tools missing");
+    await load.execute(
+      { names: ["text_editor"] },
+      { signal: AbortSignal.timeout(1_000), requestApproval: async () => true, requestClientTool: async <T>() => undefined as T },
+    );
+    expect((await resolver()).map((tool) => tool.def.name)).toContain("text_editor");
+  });
+
+  test("keeps configured web search and extraction eager together", async () => {
+    const resolver = createAiToolResolver({
+      conversationId: "conversation-1",
+      actor,
+      staticTools: await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "test-key" }),
+      store: {
+        getLoadedTools: async () => [],
+        loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+      },
+    });
+
+    const names = (await resolver()).map((tool) => tool.def.name);
+    expect(names).toContain("web_search");
+    expect(names).toContain("web_extract");
   });
 
   test("ranks natural-language task terms without requiring one contiguous phrase", () => {
@@ -435,40 +516,42 @@ describe("AI capability catalog", () => {
       description: "List bounded conversations and emails for a mailbox, inbox, folder, work view, or unread state.",
     });
     const contacts = capabilityApp("contacts", "Contacts");
-    const catalog = buildAiCapabilityCatalog([contacts, mail]);
+    const catalog = buildAiToolCatalog([], buildAiCapabilityCatalog([contacts, mail]));
 
-    expect(searchAiCapabilities(catalog, { query: "unread emails inbox", kind: "query" }).capabilities[0]).toMatchObject({
+    expect(searchAiTools(catalog, { query: "unread emails inbox" }).tools[0]).toMatchObject({
       name: "mail__query__list",
       appId: "mail",
       title: "List conversations",
     });
-    expect(searchAiCapabilities(catalog, { query: "read email messages", appId: "mail" }).capabilities).toEqual([
+    expect(searchAiTools(catalog, { query: "read email messages", appId: "mail" }).tools).toEqual([
       expect.objectContaining({ name: "mail__query__list" }),
     ]);
-    expect(searchAiCapabilities(catalog, { query: "read", appId: "mail" }).capabilities).toEqual([]);
-    expect(searchAiCapabilities(catalog, { query: "missing phrase" }).capabilities).toEqual([]);
-    expect(searchAiCapabilities(catalog, { query: "create items", appId: "contacts", kind: "action" }).capabilities).toEqual([
+    expect(searchAiTools(catalog, { query: "read", appId: "mail" }).tools).toEqual([]);
+    expect(searchAiTools(catalog, { query: "missing phrase" }).tools).toEqual([]);
+    expect(searchAiTools(catalog, { query: "create items", appId: "contacts" }).tools).toContainEqual(
       expect.objectContaining({ name: "contacts__action__create" }),
-    ]);
+    );
   });
 
   test("searches and returns the owning app description", () => {
-    const catalog = buildAiCapabilityCatalog([
-      capabilityApp(
-        "mail",
-        "Mail",
-        { title: "Browse records", description: "Return accessible records." },
-        "Read and organize email communication, mailboxes, and inboxes.",
-      ),
-    ]);
+    const catalog = buildAiToolCatalog(
+      [],
+      buildAiCapabilityCatalog([
+        capabilityApp(
+          "mail",
+          "Mail",
+          { title: "Browse records", description: "Return accessible records." },
+          "Read and organize email communication, mailboxes, and inboxes.",
+        ),
+      ]),
+    );
 
-    expect(searchAiCapabilities(catalog, { query: "email communication", kind: "query" }).capabilities).toEqual([
+    expect(searchAiTools(catalog, { query: "email communication" }).tools).toContainEqual(
       expect.objectContaining({
         appId: "mail",
         name: "mail__query__list",
-        appDescription: "Read and organize email communication, mailboxes, and inboxes.",
       }),
-    ]);
+    );
   });
 
   test("removes validation-only schema noise and round-trips through Zod", () => {
@@ -491,25 +574,26 @@ describe("AI capability catalog", () => {
     expect(z.toJSONSchema(schema)).not.toHaveProperty("properties.query.minLength");
   });
 
-  test("loads exact live names and exposes loaded capabilities as ordinary tools", async () => {
+  test("loads exact live names and exposes loaded app operations as ordinary tools", async () => {
     const catalog = buildAiCapabilityCatalog([capabilityApp("contacts", "Contacts")]);
-    const updates: Array<{ names: string[]; maxLoadedCapabilities?: number }> = [];
-    const tools = createAiCapabilityMetaTools({
+    const updates: Array<{ names: string[]; maxLoadedTools?: number }> = [];
+    const tools = createAiToolMetaTools({
       apps: [capabilityApp("contacts", "Contacts")],
-      catalog,
+      catalog: buildAiToolCatalog([], catalog),
+      eagerNames: new Set(),
       conversationId: "conversation-1",
-      maxLoadedCapabilities: 2,
+      maxLoadedTools: 2,
       store: {
-        loadCapabilities: async ({ names, maxLoadedCapabilities }) => {
-          updates.push({ names, maxLoadedCapabilities });
+        loadTools: async ({ names, maxLoadedTools }) => {
+          updates.push({ names, maxLoadedTools });
           return { loaded: names, alreadyLoaded: [], evicted: [] };
         },
       },
     });
     const prepared = prepareAiTools({ tools, actor, conversationId: "conversation-1" });
-    const load = prepared.tools.find((tool) => tool.def.name === "load_capabilities");
+    const load = prepared.tools.find((tool) => tool.def.name === "load_tools");
     expect(load?.kind).toBe("server");
-    if (!load || load.kind !== "server") throw new Error("load_capabilities missing");
+    if (!load || load.kind !== "server") throw new Error("load_tools missing");
     const result = await load.execute(
       { names: ["contacts__query__list", "missing__query__thing"] },
       { signal: AbortSignal.timeout(1_000), requestApproval: async () => true, requestClientTool: async <T>() => undefined as T },
@@ -520,7 +604,7 @@ describe("AI capability catalog", () => {
       missing: ["missing__query__thing"],
       evicted: [],
     });
-    expect(updates).toEqual([{ names: ["contacts__query__list"], maxLoadedCapabilities: 2 }]);
+    expect(updates).toEqual([{ names: ["contacts__query__list"], maxLoadedTools: 2 }]);
 
     let called = "";
     const loaded = createLoadedAiCapabilityTools({
@@ -555,6 +639,7 @@ describe("AI capability catalog", () => {
         loadedNames: ["contacts__action__create"],
         review: async () => ({
           message: "Create a contact.",
+          approvalScope: "book:default",
           details: [
             { label: "Name", value: "Ada" },
             { label: "Notes", value: "Long notes", display: "block" },
@@ -591,6 +676,7 @@ describe("AI capability catalog", () => {
         callId: "call-create",
         review: {
           message: "Create a contact.",
+          approvalScope: "book:default",
           details: [
             { label: "Name", value: "Ada" },
             { label: "Notes", value: "Long notes", display: "block" },
@@ -620,13 +706,13 @@ describe("AI capability catalog", () => {
     const spaces = capabilityApp("spaces", "Spaces");
     let registry = [contacts];
     let loaded = ["contacts__query__list"];
-    const resolver = createAiCapabilityToolResolver({
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
       store: {
-        getLoadedCapabilities: async () => [...loaded],
-        loadCapabilities: async ({ names }) => {
+        getLoadedTools: async () => [...loaded],
+        loadTools: async ({ names }) => {
           loaded = [...new Set([...loaded, ...names])];
           return { loaded: names, alreadyLoaded: [], evicted: [] };
         },
@@ -636,32 +722,18 @@ describe("AI capability catalog", () => {
     });
 
     const first = await resolver();
-    expect(first.map((tool) => tool.def.name)).toEqual([
-      "search_capabilities",
-      "list_capability_apps",
-      "list_capabilities",
-      "load_capabilities",
-      "read_cloud_resource",
-      "contacts__query__list",
-    ]);
-    expect(first.find((tool) => tool.def.name === "search_capabilities")?.def.description).not.toContain(
-      "Previously loaded capabilities currently absent",
+    expect(first.map((tool) => tool.def.name)).toEqual(["search_tools", "load_tools", "list_apps", "contacts__query__list"]);
+    expect(first.find((tool) => tool.def.name === "search_tools")?.def.description).not.toContain(
+      "Previously loaded tools currently absent",
     );
 
     loaded.push("spaces__action__create");
     registry = [spaces];
     expect(first.map((tool) => tool.def.name)).toContain("contacts__query__list");
     const second = await resolver();
-    expect(second.map((tool) => tool.def.name)).toEqual([
-      "search_capabilities",
-      "list_capability_apps",
-      "list_capabilities",
-      "load_capabilities",
-      "read_cloud_resource",
-      "spaces__action__create",
-    ]);
-    const searchDescription = second.find((tool) => tool.def.name === "search_capabilities")?.def.description;
-    expect(searchDescription).toContain("Previously loaded capabilities currently absent from the live registry: contacts__query__list");
+    expect(second.map((tool) => tool.def.name)).toEqual(["search_tools", "load_tools", "list_apps", "spaces__action__create"]);
+    const searchDescription = second.find((tool) => tool.def.name === "search_tools")?.def.description;
+    expect(searchDescription).toContain("Previously loaded tools currently absent from the live catalog: contacts__query__list");
     expect(searchDescription).toContain("Treat them as temporarily unavailable");
     expect(searchDescription).not.toContain("spaces__action__create");
   });
@@ -669,13 +741,13 @@ describe("AI capability catalog", () => {
   test("snapshots presentation and remembered-approval scope for a loaded capability", async () => {
     let presentation: unknown;
     let approvalScope: string | undefined;
-    const resolver = createAiCapabilityToolResolver({
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
       store: {
-        getLoadedCapabilities: async () => ["contacts__action__create"],
-        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+        getLoadedTools: async () => ["contacts__action__create"],
+        loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
       },
       listRegistry: async () => [capabilityApp("contacts", "Contacts")],
       execute: async () => ({ data: [] }),
@@ -694,15 +766,15 @@ describe("AI capability catalog", () => {
     expect(approvalScope).toBeUndefined();
   });
 
-  test("keeps capability discovery available when the Help registry fails", async () => {
+  test("keeps tool discovery available when the Help registry fails", async () => {
     const failures: unknown[] = [];
-    const resolver = createAiCapabilityToolResolver({
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
       store: {
-        getLoadedCapabilities: async () => [],
-        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+        getLoadedTools: async () => [],
+        loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
       },
       listRegistry: async () => [capabilityApp("contacts", "Contacts")],
       listHelpRegistry: async () => {
@@ -713,26 +785,24 @@ describe("AI capability catalog", () => {
     });
 
     expect((await resolver()).map((tool) => tool.def.name)).toEqual([
-      "search_capabilities",
-      "list_capability_apps",
-      "list_capabilities",
-      "load_capabilities",
+      "search_tools",
+      "load_tools",
+      "list_apps",
       "search_help",
       "read_help",
-      "read_cloud_resource",
     ]);
     expect(failures).toHaveLength(1);
   });
 
   test("keeps static tools available when the Capability registry fails", async () => {
     const failures: unknown[] = [];
-    const resolver = createAiCapabilityToolResolver({
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
       store: {
-        getLoadedCapabilities: async () => [],
-        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+        getLoadedTools: async () => [],
+        loadTools: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
       },
       listRegistry: async () => {
         throw new Error("registry unavailable");
@@ -742,14 +812,8 @@ describe("AI capability catalog", () => {
     });
 
     const unavailable = await resolver();
-    expect(unavailable.map((tool) => tool.def.name)).toEqual([
-      "search_capabilities",
-      "list_capability_apps",
-      "list_capabilities",
-      "load_capabilities",
-      "read_cloud_resource",
-    ]);
-    expect(unavailable.find((tool) => tool.def.name === "search_capabilities")?.def.description).toContain(
+    expect(unavailable.map((tool) => tool.def.name)).toEqual(["search_tools", "load_tools", "list_apps"]);
+    expect(unavailable.find((tool) => tool.def.name === "search_tools")?.def.description).toContain(
       "No live capability apps are visible in this provider turn",
     );
     expect(failures).toHaveLength(1);
@@ -757,17 +821,17 @@ describe("AI capability catalog", () => {
 
   test("persists automatic cleanup when a profile limit is reduced", async () => {
     let loaded = ["first", "contacts__query__list", "contacts__action__create"];
-    const updates: Array<{ names: string[]; maxLoadedCapabilities?: number }> = [];
-    const resolver = createAiCapabilityToolResolver({
+    const updates: Array<{ names: string[]; maxLoadedTools?: number }> = [];
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
-      maxLoadedCapabilities: 2,
+      maxLoadedTools: 2,
       store: {
-        getLoadedCapabilities: async () => [...loaded],
-        loadCapabilities: async ({ names, maxLoadedCapabilities }) => {
-          updates.push({ names, maxLoadedCapabilities });
-          loaded = loaded.slice(-(maxLoadedCapabilities ?? loaded.length));
+        getLoadedTools: async () => [...loaded],
+        loadTools: async ({ names, maxLoadedTools }) => {
+          updates.push({ names, maxLoadedTools });
+          loaded = loaded.slice(-(maxLoadedTools ?? loaded.length));
           return { loaded: names, alreadyLoaded: [], evicted: ["first"] };
         },
       },
@@ -776,7 +840,7 @@ describe("AI capability catalog", () => {
     });
 
     const tools = await resolver();
-    expect(updates).toEqual([{ names: [], maxLoadedCapabilities: 2 }]);
+    expect(updates).toEqual([{ names: [], maxLoadedTools: 2 }]);
     expect(tools.map((tool) => tool.def.name)).toContain("contacts__query__list");
     expect(tools.map((tool) => tool.def.name)).toContain("contacts__action__create");
   });
@@ -786,13 +850,13 @@ describe("AI capability catalog", () => {
     const requests: ProviderRequest[] = [];
     let loaded: string[] = [];
     let executed = "";
-    const resolver = createAiCapabilityToolResolver({
+    const resolver = createAiToolResolver({
       conversationId: "conversation-1",
       actor,
       staticTools: [],
       store: {
-        getLoadedCapabilities: async () => [...loaded],
-        loadCapabilities: async ({ names }) => {
+        getLoadedTools: async () => [...loaded],
+        loadTools: async ({ names }) => {
           loaded = [...new Set([...loaded, ...names])];
           return { loaded: names, alreadyLoaded: [], evicted: [] };
         },
@@ -804,9 +868,9 @@ describe("AI capability catalog", () => {
       },
     });
     const calls = [
-      { id: "apps-1", name: "list_capability_apps", args: {} },
-      { id: "list-1", name: "list_capabilities", args: { appId: "contacts", kind: "query" } },
-      { id: "load-1", name: "load_capabilities", args: { names: ["contacts__query__list"] } },
+      { id: "apps-1", name: "list_apps", args: {} },
+      { id: "search-1", name: "search_tools", args: { query: "list contacts", appId: "contacts" } },
+      { id: "load-1", name: "load_tools", args: { names: ["contacts__query__list"] } },
       { id: "query-1", name: "contacts__query__list", args: {} },
     ];
     let providerTurn = 0;
@@ -848,14 +912,8 @@ describe("AI capability catalog", () => {
       // drain
     }
 
-    expect((requests[0]?.tools ?? []).map((tool) => tool.name)).toEqual([
-      "search_capabilities",
-      "list_capability_apps",
-      "list_capabilities",
-      "load_capabilities",
-      "read_cloud_resource",
-    ]);
-    expect(requests[0]?.tools?.find((tool) => tool.name === "search_capabilities")?.description).toContain(
+    expect((requests[0]?.tools ?? []).map((tool) => tool.name)).toEqual(["search_tools", "load_tools", "list_apps"]);
+    expect(requests[0]?.tools?.find((tool) => tool.name === "search_tools")?.description).toContain(
       "Live capability apps: contacts (Contacts)",
     );
     expect((requests[2]?.tools ?? []).map((tool) => tool.name)).not.toContain("contacts__query__list");

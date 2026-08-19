@@ -257,9 +257,12 @@ export const isCardToolName = (name: string) => name === "card" || name === "clo
 
 export const isSurveyToolName = (name: string) => name === "survey" || name === "cloud_survey";
 
+export const isTextEditorToolName = (name: string) => name === "text_editor" || name === "cloud_text_editor";
+
 export const displayToolName = (name: string) => {
   if (isCardToolName(name)) return "card";
   if (isSurveyToolName(name)) return "survey";
+  if (isTextEditorToolName(name)) return "text editor";
   if (name === "local_bash") return "Local Bash";
   return name;
 };
@@ -269,6 +272,8 @@ const BUILT_IN_TOOL_ICONS = new Map<string, string>([
   ["cloud_card", "ti ti-layout-cards"],
   ["survey", "ti ti-forms"],
   ["cloud_survey", "ti ti-forms"],
+  ["text_editor", "ti ti-edit"],
+  ["cloud_text_editor", "ti ti-edit"],
   ["local_bash", "ti ti-terminal-2"],
   ["list_files", "ti ti-file-spark"],
   ["read_file", "ti ti-file-spark"],
@@ -280,13 +285,13 @@ const BUILT_IN_TOOL_ICONS = new Map<string, string>([
   ["web_extract", "ti ti-world-download"],
   ["view_image", "ti ti-photo-spark"],
   ["memory", "ti ti-brain"],
-  ["project_context", "ti ti-folder-open"],
+  ["search_project", "ti ti-folder-search"],
+  ["read_project_knowledge", "ti ti-notebook"],
   ["search_help", "ti ti-help-hexagon"],
   ["read_help", "ti ti-help-hexagon"],
-  ["search_capabilities", "ti ti-ai-gateway"],
-  ["list_capability_apps", "ti ti-ai-gateway"],
-  ["list_capabilities", "ti ti-ai-gateway"],
-  ["load_capabilities", "ti ti-ai-gateway"],
+  ["search_tools", "ti ti-ai-gateway"],
+  ["load_tools", "ti ti-ai-gateway"],
+  ["list_apps", "ti ti-apps"],
   ["read_cloud_resource", "ti ti-ai-gateway"],
 ]);
 

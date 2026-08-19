@@ -52,7 +52,7 @@ A locked policy needs `modelId`. A selectable policy may set
 | `contextWindow` | Optional context limit |
 | `temperature` | Optional profile default |
 | `maxOutputTokens` | Optional output limit |
-| `maxLoadedCapabilities` | Loaded capability names retained per conversation; missing, `0`, or negative is unlimited, while a positive value keeps the newest names and evicts the oldest |
+| `maxLoadedTools` | Deferred tool names retained per conversation; missing, `0`, or negative is unlimited, while a positive value keeps the newest names and evicts the oldest |
 | `maxToolRounds` | Tool-using model rounds allowed per chat turn; missing, `0`, or negative is unlimited, while a positive value reserves one additional tool-free model round for the final answer |
 
 Turn deadlines, cancellation, provider failures, and exhausted credits can still

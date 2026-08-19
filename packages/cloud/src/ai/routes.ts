@@ -336,7 +336,8 @@ export const aiRoutes = (() => {
           memoryEnabled,
           memoryToolEnabled,
           helpEnabled: toolsSupported,
-          capabilitiesEnabled: toolsSupported,
+          toolDiscoveryEnabled: toolsSupported,
+          appToolsEnabled: toolsSupported,
           toolHints: aiToolPromptHints(tools),
           memory: memory?.text,
           timeZone,
@@ -407,24 +408,32 @@ export const aiRoutes = (() => {
         const body = c.req.valid("json");
         const project = body.projectId ? await aiProjects.getByShortId(body.projectId, c.get("accessSubject"), "read") : null;
         if (body.projectId && !project) return respond(c, fail(err.notFound("Project")));
+        const requestedCapabilityTools = (body.preloadTools ?? []).filter(
+          (requested): requested is { appId: string; kind: "query" | "action"; id: string } => "appId" in requested,
+        );
         let catalog: ReturnType<typeof buildAiCapabilityCatalog> = [];
-        if (body.preloadCapabilities?.length) {
+        if (requestedCapabilityTools.length) {
           try {
             catalog = buildAiCapabilityCatalog(await listCapabilities());
           } catch {
             return respond(c, fail(err.internal("The live capability catalog is unavailable.")));
           }
         }
-        const preloadCapabilities = (body.preloadCapabilities ?? []).map((requested) =>
-          catalog.find(
-            (candidate) =>
-              candidate.appId === requested.appId && candidate.kind === requested.kind && candidate.operation.localId === requested.id,
-          ),
-        );
-        const unavailable = preloadCapabilities.findIndex((entry) => !entry);
+        const builtInNames = new Set((await createConfiguredDefaultCloudAiTools()).map((tool) => tool.def.name));
+        const preloadTools = (body.preloadTools ?? []).map((requested) => {
+          if ("name" in requested) return builtInNames.has(requested.name) ? requested.name : null;
+          return (
+            catalog.find(
+              (candidate) =>
+                candidate.appId === requested.appId && candidate.kind === requested.kind && candidate.operation.localId === requested.id,
+            )?.name ?? null
+          );
+        });
+        const unavailable = preloadTools.findIndex((name) => !name);
         if (unavailable >= 0) {
-          const requested = body.preloadCapabilities![unavailable]!;
-          return respond(c, fail(err.badInput(`Capability is unavailable: ${requested.appId}.${requested.id}`)));
+          const requested = body.preloadTools![unavailable]!;
+          const label = "name" in requested ? requested.name : `${requested.appId}.${requested.id}`;
+          return respond(c, fail(err.badInput(`Tool is unavailable: ${label}`)));
         }
         return respond(
           c,
@@ -435,7 +444,7 @@ export const aiRoutes = (() => {
                 title: body.title,
                 projectId: project?.id,
                 draft: body.draft?.content,
-                preloadCapabilities: preloadCapabilities.map((entry) => entry!.name),
+                preloadTools: preloadTools.map((name) => name!),
               }),
               project?.shortId ?? null,
             ),
@@ -676,7 +685,7 @@ export const aiRoutes = (() => {
             systemPrompt,
             project: project ?? undefined,
             clientToolIds: body.clientToolIds,
-            toolSource: { kind: "default", capabilities: true },
+            toolSource: { kind: "default", appTools: true },
             toolApprovalContext: ctx.toolApprovalContext,
             expectedDraftRevision: body.draftRevision,
             expectedProjectId: conversation.projectId,
@@ -764,7 +773,7 @@ export const aiRoutes = (() => {
             modelPolicy: ctx.modelPolicy,
             systemPrompt,
             project: originalProject,
-            toolSource: { kind: "default", capabilities: true },
+            toolSource: { kind: "default", appTools: true },
             toolApprovalContext: ctx.toolApprovalContext,
             truncateFromSeq: target.seq,
             fileSnapshot: originalRunConfig?.kind !== "compact" ? originalRunConfig?.files : undefined,
